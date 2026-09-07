@@ -10,6 +10,11 @@ return function(H)
         return string.format("%.2f, %.2f, %.2f", pos.X, pos.Y, pos.Z)
     end
 
+    local function join(list)
+        if not list or #list == 0 then return "--" end
+        return table.concat(list, " | ")
+    end
+
     function T.CaptureClement()
         local seller = C.FindClement()
         local part = seller and C.NPCAnchor(seller)
@@ -50,6 +55,18 @@ return function(H)
         H.State.SellStatus = "SELLER POS CLEARED"
     end
 
+    function T.DebugTrinkets()
+        local rows = H.Sell.DebugTrinkets and H.Sell.DebugTrinkets() or {}
+        print("[EndHub] ===== TRINKET SELL DEBUG =====")
+        if #rows == 0 then
+            print("[EndHub] No trinkets classified in inventory")
+        else
+            for _, row in ipairs(rows) do print("[EndHub]", row) end
+        end
+        H.State.SellStatus = #rows > 0 and ("TRINKET DEBUG: " .. tostring(#rows) .. " STACKS") or "TRINKET DEBUG: NONE FOUND"
+        return rows
+    end
+
     if Tabs and Tabs.Sell then
         local g = Tabs.Sell:AddRightGroupbox("Seller Position Memory")
         g:AddLabel("EH_SavedSellerExact", {Text = "Saved: --", DoesWrap = true})
@@ -58,6 +75,11 @@ return function(H)
         g:AddButton({Text = "TP TO SAVED POSITION (TEST)", Func = function() T.TeleportSaved() end})
         g:AddButton({Text = "CLEAR SAVED POSITION", Func = function() T.Clear() end})
         g:AddLabel("Best method: stand beside Clement and press CAPTURE CLEMENT POSITION. If he is not detected, stand exactly at the merchant and use SAVE MY POSITION AS CLEMENT AREA. The seller uses this saved position when Clement is outside StreamingEnabled range.", true)
+
+        local d = Tabs.Sell:AddRightGroupbox("Trinket Sell Debug")
+        d:AddButton({Text = "DEBUG TRINKETS", Func = function() T.DebugTrinkets() end})
+        d:AddLabel("EH_TrinketDebugSummary", {Text = "Trinkets: --", DoesWrap = true})
+        d:AddLabel("This shows the trinket name, rarity, stack quantity and whether that rarity's Trinket filter is actually ON.", true)
     end
 
     task.spawn(function()
@@ -66,8 +88,12 @@ return function(H)
                 if Options and Options.EH_SavedSellerExact then
                     Options.EH_SavedSellerExact:SetText("Saved: " .. fmt(C.GetSavedSeller()))
                 end
+                if Options and Options.EH_TrinketDebugSummary and H.Sell.DebugTrinkets then
+                    local rows = H.Sell.DebugTrinkets()
+                    Options.EH_TrinketDebugSummary:SetText("Trinkets: " .. join(rows))
+                end
             end)
-            task.wait(0.5)
+            task.wait(0.75)
         end
     end)
 end
