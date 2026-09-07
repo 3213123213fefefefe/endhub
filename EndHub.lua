@@ -36,6 +36,17 @@ local H = {
         DesyncOffset = 2.5,
         DesyncRate = 10,
 
+        BossBotEnabled = false,
+        BossTargetName = "AUTO: Highest MaxHealth",
+        BossWeaponName = "Use Equipped",
+        BossDistance = 55,
+        BossDepth = 18,
+        BossShotInterval = 0.45,
+        BossAutoShoot = true,
+        BossLockAim = true,
+        BossNoclip = true,
+        BossAimPart = "Head",
+
         NoFog = false,
         Fullbright = false,
         FullbrightBrightness = 4,
@@ -64,6 +75,12 @@ local H = {
         InventoryMax = 0,
         InventoryPercent = 0,
         FarmSellPhase = "FARM",
+
+        BossStatus = "IDLE",
+        BossTarget = "None",
+        BossHP = "--/--",
+        BossWeapon = "None",
+        BossDistance = 0,
     }
 }
 
@@ -86,6 +103,7 @@ local order = {
     "modules/farm.lua",
     "modules/sell.lua",
     "modules/movement.lua",
+    "modules/boss.lua",
     "modules/players.lua",
     "modules/visuals.lua",
     "modules/ui.lua",
@@ -96,6 +114,7 @@ local order = {
     "modules/persistence_ui.lua",
     "modules/legacy_features.lua",
     "modules/keybinds.lua",
+    "modules/boss_ui.lua",
 }
 
 for _, path in ipairs(order) do loadModule(path) end
@@ -112,9 +131,11 @@ function H:Unload()
     self.Config.AutoSell = false
     self.Config.AutoFarmSell = false
     self.Config.SpeedModifierEnabled = false
+    self.Config.BossBotEnabled = false
 
     if self.Farm and self.Farm.Stop then pcall(self.Farm.Stop) end
     if self.Sell and self.Sell.Stop then pcall(self.Sell.Stop) end
+    if self.Boss and self.Boss.Stop then pcall(self.Boss.Stop) end
     if self.PlayerTools and self.PlayerTools.Reset then pcall(self.PlayerTools.Reset) end
     if self.Movement and self.Movement.Reset then pcall(self.Movement.Reset) end
     if self.Visuals and self.Visuals.Reset then pcall(self.Visuals.Reset) end
