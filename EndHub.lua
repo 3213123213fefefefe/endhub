@@ -90,6 +90,7 @@ local order = {
     "modules/ui.lua",
     "modules/ui_compat.lua",
     "modules/seller_tools.lua",
+    "modules/persistence_ui.lua",
     "modules/legacy_features.lua",
     "modules/keybinds.lua",
 }
