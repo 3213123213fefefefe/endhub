@@ -86,6 +86,7 @@ local order = {
     "modules/players.lua",
     "modules/visuals.lua",
     "modules/ui.lua",
+    "modules/seller_tools.lua",
     "modules/legacy_features.lua",
     "modules/keybinds.lua",
 }
