@@ -86,6 +86,7 @@ local order = {
     "modules/players.lua",
     "modules/visuals.lua",
     "modules/ui.lua",
+    "modules/legacy_features.lua",
     "modules/keybinds.lua",
 }
 
@@ -103,6 +104,7 @@ function H:Unload()
     if self.PlayerTools and self.PlayerTools.Reset then pcall(self.PlayerTools.Reset) end
     if self.Movement and self.Movement.Reset then pcall(self.Movement.Reset) end
     if self.Visuals and self.Visuals.Reset then pcall(self.Visuals.Reset) end
+    if self.Legacy and self.Legacy.Reset then pcall(self.Legacy.Reset) end
 
     if self.UI and self.UI.Library and self.UI.Library.Unload and not self.UI.Library.Unloaded then
         pcall(function() self.UI.Library:Unload() end)
