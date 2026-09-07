@@ -16,6 +16,10 @@ local H = {
         TargetTimeout = 15,
         AutoPickup = true,
         BotNoclip = true,
+        FarmMoveMode = "TP",
+        FarmFlySpeed = 85,
+        LootFilterEnabled = false,
+        LootWhitelist = {},
 
         AutoSell = false,
         AutoFarmSell = false,
@@ -107,6 +111,7 @@ local order = {
     "modules/players.lua",
     "modules/visuals.lua",
     "modules/ui.lua",
+    "modules/farm_ui.lua",
     "modules/speed_ui.lua",
     "modules/ui_compat.lua",
     "modules/seller_tools.lua",
