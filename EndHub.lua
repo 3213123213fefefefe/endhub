@@ -93,6 +93,12 @@ function H:Unload()
     if self.Movement and self.Movement.Reset then pcall(self.Movement.Reset) end
     if self.Visuals and self.Visuals.Reset then pcall(self.Visuals.Reset) end
 
+    if self.UI and self.UI.Library and self.UI.Library.Unload and not self.UI.Library.Unloaded then
+        pcall(function()
+            self.UI.Library:Unload()
+        end)
+    end
+
     for _, c in ipairs(self.Connections) do
         pcall(function() c:Disconnect() end)
     end
