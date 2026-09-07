@@ -6,6 +6,20 @@ return function(H)
 
     local keys = {W=false,A=false,S=false,D=false,Space=false,Ctrl=false}
 
+    -- The multiplier value may stay saved, but the modifier itself always
+    -- starts disabled on each EndHub load. It only takes effect after the user
+    -- explicitly enables it from the Movement tab.
+    H.Config.SpeedModifierEnabled = false
+
+    function M.SetSpeedModifier(enabled)
+        H.Config.SpeedModifierEnabled = enabled and true or false
+        local hum = C.Humanoid()
+        if hum and not H.Config.MovementFly then
+            local multiplier = H.Config.SpeedModifierEnabled and H.Config.SpeedMultiplier or 1
+            hum.WalkSpeed = math.max(0, H.Config.WalkSpeed * multiplier)
+        end
+    end
+
     function M.StopFly()
         H.Config.MovementFly = false
         local root = C.Root()
@@ -24,10 +38,11 @@ return function(H)
         H.Config.MovementFly = false
         H.Config.MovementNoclip = false
         H.Config.Desync = false
+        H.Config.SpeedModifierEnabled = false
         C.Noclip(false)
         local hum = C.Humanoid()
         if hum then
-            hum.WalkSpeed = 16
+            hum.WalkSpeed = H.Config.WalkSpeed or 16
             hum.CameraOffset = Vector3.zero
         end
     end
@@ -58,7 +73,8 @@ return function(H)
 
         local hum = C.Humanoid()
         if hum and not H.Config.MovementFly then
-            hum.WalkSpeed = math.max(0, H.Config.WalkSpeed * H.Config.SpeedMultiplier)
+            local multiplier = H.Config.SpeedModifierEnabled and H.Config.SpeedMultiplier or 1
+            hum.WalkSpeed = math.max(0, H.Config.WalkSpeed * multiplier)
         end
 
         if hum then
