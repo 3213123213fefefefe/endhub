@@ -3,8 +3,14 @@ return function(H)
     local F = H.Farm
     local C = H.Core
 
+    H.Config.FarmMoveMode = H.Config.FarmMoveMode or "TP"
+    H.Config.FarmFlySpeed = tonumber(H.Config.FarmFlySpeed) or 85
+    if H.Config.LootFilterEnabled == nil then H.Config.LootFilterEnabled = false end
+    H.Config.LootWhitelist = type(H.Config.LootWhitelist) == "table" and H.Config.LootWhitelist or {}
+
     local ignored = {}
     local counted = {}
+    local lastFlyStep = 0
 
     local function isIgnored(obj)
         local untilTime = ignored[obj]
@@ -45,12 +51,80 @@ return function(H)
         return math.max(0, tick() - H.State.StartedAt)
     end
 
+    function F.LootName(obj)
+        if not obj then return "Unknown" end
+        local name = tostring(obj.Name or "")
+        if name ~= "" then return name end
+        local arg = obj:FindFirstChild("Argument")
+        if arg and arg:IsA("StringValue") and tostring(arg.Value) ~= "" then
+            return tostring(arg.Value)
+        end
+        return "Unknown"
+    end
+
+    function F.GetLootNames()
+        local folder = C.DropsFolder()
+        local names, seen = {}, {}
+        if folder then
+            for _, obj in ipairs(folder:GetChildren()) do
+                if C.IsTrinketDrop(obj) then
+                    local name = F.LootName(obj)
+                    if not seen[name] then
+                        seen[name] = true
+                        names[#names + 1] = name
+                    end
+                end
+            end
+        end
+        table.sort(names, function(a, b) return string.lower(a) < string.lower(b) end)
+        return names
+    end
+
+    function F.GetSelectedLoot()
+        local out = {}
+        for name, enabled in pairs(H.Config.LootWhitelist) do
+            if enabled == true then out[name] = true end
+        end
+        return out
+    end
+
+    function F.SetLootSelection(selection)
+        H.Config.LootWhitelist = {}
+        if type(selection) == "table" then
+            for name, enabled in pairs(selection) do
+                if enabled == true and name ~= "No loot detected" then
+                    H.Config.LootWhitelist[tostring(name)] = true
+                end
+            end
+        end
+        local target = H.State.CurrentTarget
+        if target and not F.Allowed(target) then F.ClearTarget() end
+    end
+
+    function F.SelectAllVisibleLoot()
+        local selected = {}
+        for _, name in ipairs(F.GetLootNames()) do selected[name] = true end
+        H.Config.LootWhitelist = selected
+        return F.GetSelectedLoot()
+    end
+
+    function F.ClearLootSelection()
+        H.Config.LootWhitelist = {}
+        F.ClearTarget()
+    end
+
+    function F.Allowed(obj)
+        if not C.IsTrinketDrop(obj) then return false end
+        if not H.Config.LootFilterEnabled then return true end
+        return H.Config.LootWhitelist[F.LootName(obj)] == true
+    end
+
     function F.Count()
         local folder = C.DropsFolder()
         local n = 0
         if folder then
             for _, obj in ipairs(folder:GetChildren()) do
-                if C.IsTrinketDrop(obj) then n = n + 1 end
+                if F.Allowed(obj) then n = n + 1 end
             end
         end
         H.State.Detected = n
@@ -64,7 +138,7 @@ return function(H)
 
         local best, bestDist = nil, math.huge
         for _, obj in ipairs(folder:GetChildren()) do
-            if C.IsTrinketDrop(obj) and not isIgnored(obj) then
+            if F.Allowed(obj) and not isIgnored(obj) then
                 local p = C.DropPart(obj)
                 if p then
                     local d = (root.Position - p.Position).Magnitude
@@ -79,6 +153,7 @@ return function(H)
 
     function F.Start()
         if H.State.Unloaded then return end
+        if H.Boss and H.Config.BossBotEnabled then H.Boss.Stop() end
         if H.State.StartedAt <= 0 then H.State.StartedAt = tick() end
         H.State.Running = true
         H.State.Status = "SEARCHING"
@@ -91,7 +166,32 @@ return function(H)
         if not H.Config.MovementNoclip then C.Noclip(false) end
     end
 
-    function F.Step()
+    local function moveToward(root, destination, lookAt, dt)
+        local mode = tostring(H.Config.FarmMoveMode or "TP")
+        if mode ~= "Fly" then
+            H.State.Status = "TP -> " .. tostring(H.State.CurrentTarget and H.State.CurrentTarget.Name or "loot")
+            C.Teleport(destination, lookAt)
+            return
+        end
+
+        -- Flight is intentionally throttled to ~30 updates/sec. Besides looking
+        -- less abrupt than teleporting, this avoids hammering character updates.
+        local now = tick()
+        if now - lastFlyStep < (1 / 30) then return end
+        lastFlyStep = now
+
+        local delta = destination - root.Position
+        if delta.Magnitude <= 0.05 then return end
+        local speed = math.max(5, tonumber(H.Config.FarmFlySpeed) or 85)
+        local step = math.min(delta.Magnitude, speed * math.max(dt or (1 / 30), 1 / 60))
+        local pos = root.Position + delta.Unit * step
+        root.CFrame = CFrame.lookAt(pos, lookAt)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        H.State.Status = "FLY -> " .. tostring(H.State.CurrentTarget and H.State.CurrentTarget.Name or "loot")
+    end
+
+    function F.Step(dt)
         if H.State.Unloaded or not H.State.Running then return end
         if H.Config.AutoSell then return end
 
@@ -101,17 +201,18 @@ return function(H)
             return
         end
 
-        C.Noclip(H.Config.BotNoclip)
+        C.Noclip(H.Config.BotNoclip or tostring(H.Config.FarmMoveMode) == "Fly")
 
         local target = H.State.CurrentTarget
-        if not C.IsTrinketDrop(target) then
+        if not F.Allowed(target) then
+            F.ClearTarget()
             target = F.Nearest()
             H.State.CurrentTarget = target
             H.State.TargetStarted = target and tick() or 0
         end
 
         if not target then
-            H.State.Status = "SEARCHING"
+            H.State.Status = H.Config.LootFilterEnabled and "SEARCHING SELECTED LOOT" or "SEARCHING"
             H.State.TargetDistance = 0
             return
         end
@@ -135,8 +236,7 @@ return function(H)
         H.State.TargetDistance = distance
 
         if (root.Position - destination).Magnitude > H.Config.PickupDistance then
-            H.State.Status = "TP -> " .. target.Name
-            C.Teleport(destination, part.Position)
+            moveToward(root, destination, part.Position, dt)
             return
         end
 
@@ -181,9 +281,9 @@ return function(H)
         if H.State.Running then H.State.Status = "SEARCHING" end
     end)
 
-    C.Connect(H.S.RunService.Heartbeat, function()
+    C.Connect(H.S.RunService.Heartbeat, function(dt)
         if H.State.Unloaded then return end
-        F.Step()
+        F.Step(dt)
     end)
 
     task.spawn(function()
