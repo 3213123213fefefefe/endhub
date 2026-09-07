@@ -12,7 +12,7 @@ return function(H)
 
     -- Runtime/action toggles are intentionally not restored as ON. The user's
     -- actual settings are preserved, but loading EndHub never immediately
-    -- starts selling/flying/speed modifying/etc. by itself.
+    -- starts selling/flying/speed modifying/boss farming/etc. by itself.
     local transient = {
         AutoSell = true,
         AutoFarmSell = true,
@@ -20,6 +20,7 @@ return function(H)
         MovementNoclip = true,
         Desync = true,
         SpeedModifierEnabled = true,
+        BossBotEnabled = true,
     }
 
     local function serializableCopy(value, depth)
@@ -147,11 +148,8 @@ return function(H)
         return okConfig
     end
 
-    -- Load saved settings before farm/sell/UI modules are initialized.
     P.LoadConfig()
 
-    -- Restore Clement from the generic position file if seller_positions.json
-    -- is missing; otherwise mirror the existing seller position into both.
     local savedSeller = C.GetSavedSeller()
     if savedSeller then
         ENV.ENDHUB_BOT_POSITIONS["Clement, Merchant"] = {savedSeller.X, savedSeller.Y, savedSeller.Z}
@@ -160,8 +158,6 @@ return function(H)
         if legacyPos then C.SaveSellerPosition(legacyPos) end
     end
 
-    -- Autosave only when something changed. This keeps sliders, sell filters,
-    -- visual preferences, speeds, ranges, etc. persistent without hammering disk.
     task.spawn(function()
         while not H.State.Unloaded do
             pcall(function()
