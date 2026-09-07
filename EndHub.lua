@@ -31,6 +31,7 @@ local H = {
         MovementNoclip = false,
         WalkSpeed = 16,
         SpeedMultiplier = 1,
+        SpeedModifierEnabled = false,
         Desync = false,
         DesyncOffset = 2.5,
         DesyncRate = 10,
@@ -88,6 +89,7 @@ local order = {
     "modules/players.lua",
     "modules/visuals.lua",
     "modules/ui.lua",
+    "modules/speed_ui.lua",
     "modules/ui_compat.lua",
     "modules/seller_tools.lua",
     "modules/trinket_sell_fix.lua",
@@ -109,6 +111,7 @@ function H:Unload()
     self.State.Running = false
     self.Config.AutoSell = false
     self.Config.AutoFarmSell = false
+    self.Config.SpeedModifierEnabled = false
 
     if self.Farm and self.Farm.Stop then pcall(self.Farm.Stop) end
     if self.Sell and self.Sell.Stop then pcall(self.Sell.Stop) end
