@@ -51,6 +51,7 @@ local H = {
         Unloaded = false,
         Status = "IDLE",
         SellStatus = "IDLE",
+        PersistenceStatus = "INIT",
         CurrentTarget = nil,
         TargetStarted = 0,
         TargetDistance = 0,
@@ -80,6 +81,7 @@ end
 
 local order = {
     "modules/core.lua",
+    "modules/persistence.lua",
     "modules/farm.lua",
     "modules/sell.lua",
     "modules/movement.lua",
@@ -96,6 +98,11 @@ for _, path in ipairs(order) do loadModule(path) end
 
 function H:Unload()
     if self.State.Unloaded then return end
+
+    if self.PersistenceManager and self.PersistenceManager.SaveAll then
+        pcall(function() self.PersistenceManager.SaveAll(true) end)
+    end
+
     self.State.Unloaded = true
     self.State.Running = false
     self.Config.AutoSell = false
@@ -107,7 +114,6 @@ function H:Unload()
     if self.Movement and self.Movement.Reset then pcall(self.Movement.Reset) end
     if self.Visuals and self.Visuals.Reset then pcall(self.Visuals.Reset) end
     if self.Legacy and self.Legacy.Reset then pcall(self.Legacy.Reset) end
-    if self.UICompat and self.UICompat.Reset then pcall(self.UICompat.Reset) end
 
     if self.UI and self.UI.Library and self.UI.Library.Unload and not self.UI.Library.Unloaded then
         pcall(function() self.UI.Library:Unload() end)
