@@ -13,6 +13,8 @@ return function(H)
         SellerReady = false,
         ReadyAt = 0,
         CategoryMatches = {},
+        RarityCounts = {},
+        TrinketDebug = {},
         OneShot = false,
         InteractOnly = false,
     }
@@ -46,10 +48,14 @@ return function(H)
     end
 
     function S.ClearFilters()
-        for _, rarity in ipairs(defaults) do
-            local b = ensureBucket(rarity)
-            for _, category in ipairs(categories) do b[category] = false end
+        for rarity, bucket in pairs(H.Config.SellByRarity) do
+            if type(bucket) == "table" then
+                for _, category in ipairs(categories) do bucket[category] = false end
+            else
+                H.Config.SellByRarity[rarity] = nil
+            end
         end
+        for _, rarity in ipairs(defaults) do ensureBucket(rarity) end
     end
 
     local function categoryFromRef(ref)
@@ -72,6 +78,17 @@ return function(H)
         if tool:FindFirstChild("IsItem") then return "Item" end
         if tool:FindFirstChild("IsGem") then return "Gem" end
         if tool:FindFirstChild("IsSummon") then return "Summon" end
+
+        local gemNames = {
+            Sapphire = true,
+            Topaz = true,
+            Ruby = true,
+            Emerald = true,
+            Diamond = true,
+            Amethyst = true,
+        }
+        if gemNames[tool.Name] and tool:FindFirstChild("IsEnchant") then return "Gem" end
+
         if tool:FindFirstChild("IsEnchant") then return "Tome" end
         local sword = tool:FindFirstChild("IsSword")
         if sword and sword:IsA("BoolValue") and sword.Value then return "Weapon" end
@@ -119,18 +136,46 @@ return function(H)
         return out
     end
 
+    function S.CollectRarities()
+        local result, seen = {}, {}
+        local function add(name)
+            name = C.NormalizeRarity(name)
+            local key = string.lower(name)
+            if not seen[key] then
+                seen[key] = true
+                result[#result + 1] = name
+                ensureBucket(name)
+            end
+        end
+        for _, entry in ipairs(S.InventoryEntries()) do add(entry.Rarity) end
+        for _, name in ipairs(defaults) do add(name) end
+        return result
+    end
+
     function S.BuildPayload()
         local payload, stacks = {}, 0
         runtime.CategoryMatches = {}
+        runtime.RarityCounts = {}
+        runtime.TrinketDebug = {}
+
+        for _, category in ipairs(categories) do runtime.CategoryMatches[category] = 0 end
 
         for _, entry in ipairs(S.InventoryEntries()) do
-            local bucket = H.Config.SellByRarity[C.NormalizeRarity(entry.Rarity)]
-            if bucket and bucket[entry.Category] then
+            local rarity = C.NormalizeRarity(entry.Rarity)
+            local category = entry.Category
+            runtime.RarityCounts[category] = runtime.RarityCounts[category] or {}
+            runtime.RarityCounts[category][rarity] = (runtime.RarityCounts[category][rarity] or 0) + 1
+
+            if category == "Trinket" then
+                runtime.TrinketDebug[#runtime.TrinketDebug + 1] =
+                    tostring(entry.Tool and entry.Tool.Name or "?") .. "=" .. rarity .. "x" .. tostring(entry.Amount or 1)
+            end
+
+            local bucket = H.Config.SellByRarity[rarity]
+            if bucket and bucket[category] then
                 stacks = stacks + 1
-                runtime.CategoryMatches[entry.Category] = (runtime.CategoryMatches[entry.Category] or 0) + 1
-                for _ = 1, math.max(1, entry.Amount) do
-                    payload[#payload + 1] = entry.Tool
-                end
+                runtime.CategoryMatches[category] = (runtime.CategoryMatches[category] or 0) + 1
+                for _ = 1, math.max(1, entry.Amount) do payload[#payload + 1] = entry.Tool end
             end
         end
         return payload, stacks
@@ -179,12 +224,8 @@ return function(H)
         if remotes then
             local register = remotes:FindFirstChild("RegisterNPCInteraction")
             local dialog = remotes:FindFirstChild("DialogEvent")
-            if register and register:IsA("RemoteEvent") then
-                pcall(function() register:FireServer("Clement, Merchant") end)
-            end
-            if dialog and dialog:IsA("RemoteEvent") then
-                pcall(function() dialog:FireServer("start", seller, 1) end)
-            end
+            if register and register:IsA("RemoteEvent") then pcall(function() register:FireServer("Clement, Merchant") end) end
+            if dialog and dialog:IsA("RemoteEvent") then pcall(function() dialog:FireServer("start", seller, 1) end) end
         end
 
         C.PressKey(0x45)
