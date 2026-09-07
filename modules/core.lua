@@ -112,9 +112,7 @@ return function(H)
     local function ensureDir()
         if not isfolder or not makefolder then return false end
         local ok, exists = pcall(isfolder, H.Persistence.Dir)
-        if ok and not exists then
-            pcall(makefolder, H.Persistence.Dir)
-        end
+        if ok and not exists then pcall(makefolder, H.Persistence.Dir) end
         return true
     end
 
@@ -141,18 +139,23 @@ return function(H)
     local savedSellerDisk = C.ReadJson(H.Persistence.SellerFile)
     if type(savedSellerDisk) == "table" then
         for k, v in pairs(savedSellerDisk) do
-            if ENV.ENDHUB_SELLER_POSITIONS[k] == nil then
-                ENV.ENDHUB_SELLER_POSITIONS[k] = v
-            end
+            if ENV.ENDHUB_SELLER_POSITIONS[k] == nil then ENV.ENDHUB_SELLER_POSITIONS[k] = v end
         end
     end
 
     function C.SaveSellerPosition(pos)
         if typeof(pos) ~= "Vector3" then return end
+        local old = ENV.ENDHUB_SELLER_POSITIONS["Clement, Merchant"] or ENV.ENDHUB_SELLER_POSITIONS.Clement
+        local changed = true
+        if type(old) == "table" and tonumber(old[1]) and tonumber(old[2]) and tonumber(old[3]) then
+            changed = math.abs(tonumber(old[1]) - pos.X) > 0.05
+                or math.abs(tonumber(old[2]) - pos.Y) > 0.05
+                or math.abs(tonumber(old[3]) - pos.Z) > 0.05
+        end
         local data = {pos.X, pos.Y, pos.Z}
         ENV.ENDHUB_SELLER_POSITIONS["Clement, Merchant"] = data
         ENV.ENDHUB_SELLER_POSITIONS.Clement = data
-        C.WriteJson(H.Persistence.SellerFile, ENV.ENDHUB_SELLER_POSITIONS)
+        if changed then C.WriteJson(H.Persistence.SellerFile, ENV.ENDHUB_SELLER_POSITIONS) end
     end
 
     function C.ClearSavedSeller()
