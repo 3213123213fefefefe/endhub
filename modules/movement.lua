@@ -6,12 +6,30 @@ return function(H)
 
     local keys = {W=false,A=false,S=false,D=false,Space=false,Ctrl=false}
 
+    function M.StopFly()
+        H.Config.MovementFly = false
+        local root = C.Root()
+        if root then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+
+    function M.ResetCharacter()
+        local hum = C.Humanoid()
+        if hum then hum.Health = 0 end
+    end
+
     function M.Reset()
         H.Config.MovementFly = false
         H.Config.MovementNoclip = false
+        H.Config.Desync = false
         C.Noclip(false)
         local hum = C.Humanoid()
-        if hum then hum.WalkSpeed = 16 end
+        if hum then
+            hum.WalkSpeed = 16
+            hum.CameraOffset = Vector3.zero
+        end
     end
 
     C.Connect(UIS.InputBegan, function(input, gp)
@@ -40,7 +58,16 @@ return function(H)
 
         local hum = C.Humanoid()
         if hum and not H.Config.MovementFly then
-            hum.WalkSpeed = H.Config.WalkSpeed
+            hum.WalkSpeed = math.max(0, H.Config.WalkSpeed * H.Config.SpeedMultiplier)
+        end
+
+        if hum then
+            if H.Config.Desync and not H.State.Running and not H.Config.AutoSell then
+                local wave = math.sin(tick() * math.pi * 2 * H.Config.DesyncRate)
+                hum.CameraOffset = Vector3.new(wave * H.Config.DesyncOffset, 0, 0)
+            elseif hum.CameraOffset ~= Vector3.zero then
+                hum.CameraOffset = Vector3.zero
+            end
         end
 
         if H.Config.MovementNoclip or H.Config.MovementFly then
@@ -60,13 +87,14 @@ return function(H)
         if keys.S then dir = dir - cf.LookVector end
         if keys.D then dir = dir + cf.RightVector end
         if keys.A then dir = dir - cf.RightVector end
-        if keys.Space then dir = dir + Vector3.new(0,1,0) end
-        if keys.Ctrl then dir = dir - Vector3.new(0,1,0) end
+        if keys.Space then dir = dir + Vector3.yAxis end
+        if keys.Ctrl then dir = dir - Vector3.yAxis end
 
+        local newPos = root.Position
         if dir.Magnitude > 0 then
-            dir = dir.Unit
-            root.CFrame = root.CFrame + dir * H.Config.MovementFlySpeed * dt
+            newPos = newPos + dir.Unit * H.Config.MovementFlySpeed * dt
         end
+        root.CFrame = CFrame.lookAt(newPos, newPos + cam.CFrame.LookVector)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
     end)
