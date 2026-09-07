@@ -11,7 +11,10 @@ return function(H)
         LastSold = 0,
         LastStacks = 0,
         SellerReady = false,
+        ReadyAt = 0,
         CategoryMatches = {},
+        OneShot = false,
+        InteractOnly = false,
     }
     S.Runtime = runtime
 
@@ -34,8 +37,18 @@ return function(H)
 
     function S.SetFilter(rarity, category, value)
         local b = ensureBucket(rarity)
-        if b[category] ~= nil then
-            b[category] = value and true or false
+        if b[category] ~= nil then b[category] = value and true or false end
+    end
+
+    function S.GetFilter(rarity, category)
+        local b = ensureBucket(rarity)
+        return b[category] == true
+    end
+
+    function S.ClearFilters()
+        for _, rarity in ipairs(defaults) do
+            local b = ensureBucket(rarity)
+            for _, category in ipairs(categories) do b[category] = false end
         end
     end
 
@@ -57,8 +70,9 @@ return function(H)
         if tool:FindFirstChild("IsAccessory") then return "Accessory" end
         if tool:FindFirstChild("IsOutfit") then return "Outfit" end
         if tool:FindFirstChild("IsItem") then return "Item" end
-        if tool:FindFirstChild("IsEnchant") then return "Tome" end
+        if tool:FindFirstChild("IsGem") then return "Gem" end
         if tool:FindFirstChild("IsSummon") then return "Summon" end
+        if tool:FindFirstChild("IsEnchant") then return "Tome" end
         local sword = tool:FindFirstChild("IsSword")
         if sword and sword:IsA("BoolValue") and sword.Value then return "Weapon" end
         return nil
@@ -68,7 +82,8 @@ return function(H)
         if not slot then return 1 end
         local label = slot:FindFirstChild("ItemStack", true)
         if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
-            local n = tonumber(string.match(tostring(label.Text or ""), "[xX](%d+)"))
+            local text = tostring(label.Text or "")
+            local n = tonumber(string.match(text, "[xX]%s*(%d+)")) or tonumber(string.match(text, "^%s*(%d+)%s*$"))
             if n and n > 0 then return math.floor(n) end
         end
         return 1
@@ -76,7 +91,7 @@ return function(H)
 
     function S.InventoryEntries()
         local pg = Player:FindFirstChild("PlayerGui")
-        local inv = pg and pg:FindFirstChild("InventoryGui")
+        local inv = pg and pg:FindFirstChild("InventoryGui", true)
         if not inv then return {} end
 
         local out, seen = {}, {}
@@ -113,7 +128,7 @@ return function(H)
             if bucket and bucket[entry.Category] then
                 stacks = stacks + 1
                 runtime.CategoryMatches[entry.Category] = (runtime.CategoryMatches[entry.Category] or 0) + 1
-                for i = 1, math.max(1, entry.Amount) do
+                for _ = 1, math.max(1, entry.Amount) do
                     payload[#payload + 1] = entry.Tool
                 end
             end
@@ -121,7 +136,7 @@ return function(H)
         return payload, stacks
     end
 
-    function S.SellMatching()
+    local function fireSellRemote()
         local remotes = RS:FindFirstChild("Remotes")
         local remote = remotes and remotes:FindFirstChild("SellItemsEvent")
         if not remote or not remote:IsA("RemoteEvent") then
@@ -143,6 +158,22 @@ return function(H)
         return true
     end
 
+    function S.SellMatching()
+        runtime.OneShot = true
+        runtime.InteractOnly = false
+        runtime.SellerReady = false
+        runtime.ReadyAt = 0
+        H.State.SellStatus = "QUEUED SELL"
+    end
+
+    function S.InteractWithClement()
+        runtime.InteractOnly = true
+        runtime.OneShot = false
+        runtime.SellerReady = false
+        runtime.ReadyAt = 0
+        H.State.SellStatus = "QUEUED INTERACTION"
+    end
+
     local function interactSeller(seller)
         local remotes = RS:FindFirstChild("Remotes")
         if remotes then
@@ -157,7 +188,7 @@ return function(H)
         end
 
         C.PressKey(0x45)
-        task.delay(0.18, function()
+        task.delay(0.22, function()
             if not H.State.Unloaded then C.PressKey(0x31) end
         end)
     end
@@ -165,6 +196,7 @@ return function(H)
     function S.Start()
         H.Config.AutoSell = true
         runtime.SellerReady = false
+        runtime.ReadyAt = 0
         runtime.LastInteract = 0
         runtime.LastSell = 0
         H.State.SellStatus = "STARTING"
@@ -173,13 +205,18 @@ return function(H)
     function S.Stop()
         H.Config.AutoSell = false
         runtime.SellerReady = false
+        runtime.ReadyAt = 0
+        runtime.OneShot = false
+        runtime.InteractOnly = false
         H.State.SellStatus = "IDLE"
     end
 
     function S.Step()
-        if H.State.Unloaded or not H.Config.AutoSell then return end
-        H.State.Running = false
+        if H.State.Unloaded then return end
+        local active = H.Config.AutoSell or runtime.OneShot or runtime.InteractOnly
+        if not active then return end
 
+        H.State.Running = false
         local root = C.Root()
         if not root then
             H.State.SellStatus = "WAIT CHARACTER"
@@ -199,18 +236,21 @@ return function(H)
                 H.State.SellStatus = "TP SAVED SELLER AREA"
                 C.Teleport(saved + Vector3.new(0, 4, 0))
             else
-                H.State.SellStatus = "WAIT SELLER STREAM"
+                H.State.SellStatus = "WAIT CLEMENT STREAM"
             end
             return
         end
 
         local part = C.NPCAnchor(seller)
         if not part then return end
+        C.SaveSellerPosition(part.Position)
+
         local destination = part.Position + Vector3.new(0, 2.5, 0)
         if (root.Position - destination).Magnitude > H.Config.SellerInteractDistance then
             H.State.SellStatus = "TP TO CLEMENT"
             C.Teleport(destination, part.Position)
             runtime.SellerReady = false
+            runtime.ReadyAt = 0
             return
         end
 
@@ -221,11 +261,26 @@ return function(H)
             H.State.SellStatus = "INTERACTING"
             interactSeller(seller)
             runtime.SellerReady = true
+            runtime.ReadyAt = tick()
+            if runtime.InteractOnly then
+                task.delay(0.45, function()
+                    if H.State.Unloaded then return end
+                    runtime.InteractOnly = false
+                    runtime.SellerReady = false
+                    H.State.SellStatus = "INTERACTED"
+                end)
+                return
+            end
         end
 
-        if runtime.SellerReady and tick() - runtime.LastSell >= H.Config.SellInterval then
+        if runtime.SellerReady and tick() - runtime.ReadyAt >= 0.35 and tick() - runtime.LastSell >= H.Config.SellInterval then
             runtime.LastSell = tick()
-            S.SellMatching()
+            local sold = fireSellRemote()
+            if runtime.OneShot then
+                runtime.OneShot = false
+                runtime.SellerReady = false
+                if sold then H.State.SellStatus = "ONE-SHOT SOLD" end
+            end
         end
     end
 
@@ -240,7 +295,7 @@ return function(H)
                 if H.Farm then H.Farm.Stop() end
                 S.Start()
             else
-                H.Config.AutoSell = false
+                if not runtime.OneShot and not runtime.InteractOnly then H.Config.AutoSell = false end
                 if H.Farm and not H.State.Running then H.Farm.Start() end
             end
         else
