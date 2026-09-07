@@ -58,8 +58,37 @@ return function(H)
         for _, rarity in ipairs(defaults) do ensureBucket(rarity) end
     end
 
+    local gemNames = {
+        Sapphire = true,
+        Topaz = true,
+        Ruby = true,
+        Emerald = true,
+        Diamond = true,
+        Amethyst = true,
+    }
+
+    local function boolTrue(tool, name)
+        local v = tool and tool:FindFirstChild(name)
+        return v and v:IsA("BoolValue") and v.Value == true
+    end
+
     local function categoryFromRef(ref)
-        local node = ref and ref.Parent
+        if not ref or not ref:IsA("ObjectValue") then return nil end
+        local tool = ref.Value
+        if not tool then return nil end
+
+        -- Explicit tool metadata has priority. Some inventory rebuilds move a
+        -- trinket slot below a generic ItemsFrame, which previously caused it
+        -- to be classified as Item before IsTrinket was ever checked.
+        if boolTrue(tool, "IsTrinket") then return "Trinket" end
+        if tool:FindFirstChild("IsPotion") then return "Potion" end
+        if tool:FindFirstChild("IsAccessory") then return "Accessory" end
+        if tool:FindFirstChild("IsOutfit") then return "Outfit" end
+        if tool:FindFirstChild("IsGem") then return "Gem" end
+        if tool:FindFirstChild("IsSummon") then return "Summon" end
+        if gemNames[tool.Name] and tool:FindFirstChild("IsEnchant") then return "Gem" end
+
+        local node = ref.Parent
         while node do
             local mapped = H.SellCategoryFrames[node.Name]
             if mapped then return mapped end
@@ -67,31 +96,9 @@ return function(H)
             node = node.Parent
         end
 
-        local tool = ref and ref.Value
-        if not tool then return nil end
-
-        local tr = tool:FindFirstChild("IsTrinket")
-        if tr and tr:IsA("BoolValue") and tr.Value then return "Trinket" end
-        if tool:FindFirstChild("IsPotion") then return "Potion" end
-        if tool:FindFirstChild("IsAccessory") then return "Accessory" end
-        if tool:FindFirstChild("IsOutfit") then return "Outfit" end
         if tool:FindFirstChild("IsItem") then return "Item" end
-        if tool:FindFirstChild("IsGem") then return "Gem" end
-        if tool:FindFirstChild("IsSummon") then return "Summon" end
-
-        local gemNames = {
-            Sapphire = true,
-            Topaz = true,
-            Ruby = true,
-            Emerald = true,
-            Diamond = true,
-            Amethyst = true,
-        }
-        if gemNames[tool.Name] and tool:FindFirstChild("IsEnchant") then return "Gem" end
-
         if tool:FindFirstChild("IsEnchant") then return "Tome" end
-        local sword = tool:FindFirstChild("IsSword")
-        if sword and sword:IsA("BoolValue") and sword.Value then return "Weapon" end
+        if boolTrue(tool, "IsSword") then return "Weapon" end
         return nil
     end
 
@@ -100,7 +107,9 @@ return function(H)
         local label = slot:FindFirstChild("ItemStack", true)
         if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
             local text = tostring(label.Text or "")
-            local n = tonumber(string.match(text, "[xX]%s*(%d+)")) or tonumber(string.match(text, "^%s*(%d+)%s*$"))
+            local n = tonumber(string.match(text, "[xX]%s*(%d+)"))
+                or tonumber(string.match(text, "(%d+)%s*[xX]"))
+                or tonumber(string.match(text, "(%d+)"))
             if n and n > 0 then return math.floor(n) end
         end
         return 1
@@ -127,6 +136,7 @@ return function(H)
                                 Category = cat,
                                 Rarity = C.ToolRarity(tool),
                                 Amount = stackCount(obj.Parent),
+                                Slot = obj.Parent,
                             }
                         end
                     end
@@ -175,10 +185,32 @@ return function(H)
             if bucket and bucket[category] then
                 stacks = stacks + 1
                 runtime.CategoryMatches[category] = (runtime.CategoryMatches[category] or 0) + 1
-                for _ = 1, math.max(1, entry.Amount) do payload[#payload + 1] = entry.Tool end
+                for _ = 1, math.max(1, entry.Amount) do
+                    payload[#payload + 1] = entry.Tool
+                end
             end
         end
+        table.sort(runtime.TrinketDebug)
         return payload, stacks
+    end
+
+    function S.DebugTrinkets()
+        S.BuildPayload()
+        local out = {}
+        for _, entry in ipairs(S.InventoryEntries()) do
+            if entry.Category == "Trinket" then
+                local rarity = C.NormalizeRarity(entry.Rarity)
+                out[#out + 1] = string.format(
+                    "%s | %s | x%d | filter=%s",
+                    tostring(entry.Tool.Name),
+                    rarity,
+                    tonumber(entry.Amount) or 1,
+                    S.GetFilter(rarity, "Trinket") and "ON" or "OFF"
+                )
+            end
+        end
+        table.sort(out)
+        return out
     end
 
     local function fireSellRemote()
