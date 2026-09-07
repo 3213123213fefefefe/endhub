@@ -12,13 +12,14 @@ return function(H)
 
     -- Runtime/action toggles are intentionally not restored as ON. The user's
     -- actual settings are preserved, but loading EndHub never immediately
-    -- starts selling/flying/etc. by itself.
+    -- starts selling/flying/speed modifying/etc. by itself.
     local transient = {
         AutoSell = true,
         AutoFarmSell = true,
         MovementFly = true,
         MovementNoclip = true,
         Desync = true,
+        SpeedModifierEnabled = true,
     }
 
     local function serializableCopy(value, depth)
