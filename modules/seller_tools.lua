@@ -1,0 +1,73 @@
+return function(H)
+    H.SellerTools = {}
+    local T = H.SellerTools
+    local C = H.Core
+    local Options = H.UI and H.UI.Options
+    local Tabs = H.UI and H.UI.Tabs
+
+    local function fmt(pos)
+        if not pos then return "--" end
+        return string.format("%.2f, %.2f, %.2f", pos.X, pos.Y, pos.Z)
+    end
+
+    function T.CaptureClement()
+        local seller = C.FindClement()
+        local part = seller and C.NPCAnchor(seller)
+        if not part then
+            H.State.SellStatus = "CLEMENT NOT STREAMED"
+            return false
+        end
+        C.SaveSellerPosition(part.Position)
+        H.State.SellStatus = "SELLER POS SAVED: " .. fmt(part.Position)
+        print("[EndHub] Clement position:", fmt(part.Position))
+        return true, part.Position
+    end
+
+    function T.CaptureCurrentPosition()
+        local root = C.Root()
+        if not root then
+            H.State.SellStatus = "WAIT CHARACTER"
+            return false
+        end
+        C.SaveSellerPosition(root.Position)
+        H.State.SellStatus = "PLAYER POS SAVED AS SELLER: " .. fmt(root.Position)
+        print("[EndHub] Saved current player position as Clement area:", fmt(root.Position))
+        return true, root.Position
+    end
+
+    function T.TeleportSaved()
+        local pos = C.GetSavedSeller()
+        if not pos then
+            H.State.SellStatus = "NO SAVED SELLER POS"
+            return false
+        end
+        H.State.SellStatus = "TP TEST -> SAVED SELLER"
+        return C.Teleport(pos + Vector3.new(0, 4, 0))
+    end
+
+    function T.Clear()
+        C.ClearSavedSeller()
+        H.State.SellStatus = "SELLER POS CLEARED"
+    end
+
+    if Tabs and Tabs.Sell then
+        local g = Tabs.Sell:AddRightGroupbox("Seller Position Memory")
+        g:AddLabel("EH_SavedSellerExact", {Text = "Saved: --", DoesWrap = true})
+        g:AddButton({Text = "CAPTURE CLEMENT POSITION", Func = function() T.CaptureClement() end})
+        g:AddButton({Text = "SAVE MY POSITION AS CLEMENT AREA", Func = function() T.CaptureCurrentPosition() end})
+        g:AddButton({Text = "TP TO SAVED POSITION (TEST)", Func = function() T.TeleportSaved() end})
+        g:AddButton({Text = "CLEAR SAVED POSITION", Func = function() T.Clear() end})
+        g:AddLabel("Best method: stand beside Clement and press CAPTURE CLEMENT POSITION. If he is not detected, stand exactly at the merchant and use SAVE MY POSITION AS CLEMENT AREA. The seller uses this saved position when Clement is outside StreamingEnabled range.", true)
+    end
+
+    task.spawn(function()
+        while not H.State.Unloaded do
+            pcall(function()
+                if Options and Options.EH_SavedSellerExact then
+                    Options.EH_SavedSellerExact:SetText("Saved: " .. fmt(C.GetSavedSeller()))
+                end
+            end)
+            task.wait(0.5)
+        end
+    end)
+end
