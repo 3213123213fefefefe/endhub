@@ -73,7 +73,7 @@ local order = {
     "modules/sell.lua",
     "modules/movement.lua",
     "modules/visuals.lua",
-    "modules/ui.lua",
+    "modules/ui_loader.lua",
     "modules/keybinds.lua",
 }
 
