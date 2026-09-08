@@ -12,7 +12,7 @@ return function(H)
 
     -- Runtime/action toggles are intentionally not restored as ON. The user's
     -- actual settings are preserved, but loading EndHub never immediately
-    -- starts selling/flying/speed modifying/boss farming/etc. by itself.
+    -- starts selling/flying/speed modifying/boss/mob farming/etc. by itself.
     local transient = {
         AutoSell = true,
         AutoFarmSell = true,
@@ -21,6 +21,7 @@ return function(H)
         Desync = true,
         SpeedModifierEnabled = true,
         BossBotEnabled = true,
+        MobFarmEnabled = true,
         NoKillbrick = true,
     }
 
