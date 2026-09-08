@@ -39,6 +39,7 @@ local H = {
         Desync = false,
         DesyncOffset = 2.5,
         DesyncRate = 10,
+        NoKillbrick = false,
 
         BossBotEnabled = false,
         BossTargetName = "AUTO: Highest MaxHealth",
@@ -79,6 +80,7 @@ local H = {
         InventoryMax = 0,
         InventoryPercent = 0,
         FarmSellPhase = "FARM",
+        NoKillbrickMatches = 0,
 
         BossStatus = "IDLE",
         BossTarget = "None",
@@ -113,6 +115,7 @@ local order = {
     "modules/ui.lua",
     "modules/farm_ui.lua",
     "modules/speed_ui.lua",
+    "modules/no_killbrick.lua",
     "modules/ui_compat.lua",
     "modules/seller_tools.lua",
     "modules/trinket_sell_fix.lua",
@@ -137,10 +140,12 @@ function H:Unload()
     self.Config.AutoFarmSell = false
     self.Config.SpeedModifierEnabled = false
     self.Config.BossBotEnabled = false
+    self.Config.NoKillbrick = false
 
     if self.Farm and self.Farm.Stop then pcall(self.Farm.Stop) end
     if self.Sell and self.Sell.Stop then pcall(self.Sell.Stop) end
     if self.Boss and self.Boss.Stop then pcall(self.Boss.Stop) end
+    if self.NoKillbrick and self.NoKillbrick.Reset then pcall(self.NoKillbrick.Reset) end
     if self.PlayerTools and self.PlayerTools.Reset then pcall(self.PlayerTools.Reset) end
     if self.Movement and self.Movement.Reset then pcall(self.Movement.Reset) end
     if self.Visuals and self.Visuals.Reset then pcall(self.Visuals.Reset) end
