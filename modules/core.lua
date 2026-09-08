@@ -165,9 +165,9 @@ return function(H)
     end
 
     function C.GetSavedSeller()
-        -- Fill from a real coordinate export, keyed by map PlaceId.
+        -- Captured Clement coordinates, keyed by map PlaceId.
         local embeddedByPlace = {
-            -- ["PLACE_ID"] = {X, Y, Z},
+            ["125503525638054"] = {242.51593, 188.5, 1.00323868},
         }
         local key = tostring(game.PlaceId)
         local fixed = embeddedByPlace[key]
