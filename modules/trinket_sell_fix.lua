@@ -7,6 +7,50 @@ return function(H)
 
     local runtime = S.Runtime
 
+    -- Match an exact inventory category + Tool name, never a partial name.
+    -- These are the Common items identified in the user's inventory.
+    H.Config.SellExactItems = H.Config.SellExactItems or {
+        ["Trinket|Amulet"] = true, ["Trinket|Goblet"] = true,
+        ["Trinket|Old Amulet"] = true, ["Trinket|Old Ring"] = true,
+        ["Trinket|Ring"] = true, ["Item|Bag"] = true,
+        ["Tome|Enhancement Tome"] = true,
+        ["Tome|Enhancement Tome (Sharpness I)"] = true,
+    }
+    if H.Config.SellExactEnabled == nil then H.Config.SellExactEnabled = true end
+
+    local function identity(entry)
+        return entry.Category .. "|" .. entry.Tool.Name
+    end
+
+    local function exactSelected(entry)
+        return H.Config.SellExactEnabled and H.Config.SellExactItems[identity(entry)] == true
+    end
+
+    function S.ExportItemIdentities()
+        local lines = {"[EndHub IDs] Exact category/name keys; metadata below is diagnostic, not an assumed stable ID."}
+        for _, entry in ipairs(S.InventoryEntries()) do
+            if C.NormalizeRarity(entry.Rarity) == "Common" or exactSelected(entry) then
+                local fields = {}
+                for key, value in pairs(entry.Tool:GetAttributes()) do
+                    if type(value) == "string" or type(value) == "number" or type(value) == "boolean" then
+                        fields[#fields + 1] = "attribute:" .. key .. "=" .. tostring(value)
+                    end
+                end
+                for _, child in ipairs(entry.Tool:GetChildren()) do
+                    if child:IsA("StringValue") or child:IsA("NumberValue") or child:IsA("IntValue") or child:IsA("BoolValue") then
+                        fields[#fields + 1] = child.Name .. "=" .. tostring(child.Value)
+                    end
+                end
+                table.sort(fields)
+                lines[#lines + 1] = string.format("[EndHub ID] %s | x%d | %s", identity(entry), entry.Amount, table.concat(fields, "; "))
+            end
+        end
+        local text = table.concat(lines, "\n")
+        print(text)
+        if setclipboard then pcall(setclipboard, text) end
+        return text
+    end
+
     local function isInside(ref, wanted)
         local node = ref and ref.Parent
         while node do
@@ -129,7 +173,7 @@ return function(H)
             runtime.RarityCounts[category] = runtime.RarityCounts[category] or {}
             runtime.RarityCounts[category][rarity] = (runtime.RarityCounts[category][rarity] or 0) + 1
 
-            local filterOn = S.GetFilter(rarity, category)
+            local filterOn = exactSelected(entry) or S.GetFilter(rarity, category)
             if category == "Trinket" then
                 local marker = entry.Tool:FindFirstChild("IsTrinket")
                 local markerText = marker and marker:IsA("BoolValue") and tostring(marker.Value) or tostring(marker ~= nil)
@@ -279,7 +323,7 @@ return function(H)
             end
 
             local d = (root.Position - saved).Magnitude
-            if d > 25 then
+            if d > H.Config.SellerInteractDistance then
                 H.State.SellStatus = "TP SAVED SELLER AREA"
                 C.Teleport(saved + Vector3.new(0, 4, 0))
             else
@@ -360,6 +404,43 @@ return function(H)
     end
 
     if tabs and tabs.Sell then
+        local exact = tabs.Sell:AddLeftGroupbox("Sell by Exact Item")
+        exact:AddToggle("EH_SellExactEnabled", {
+            Text = "Include exact items regardless of rarity",
+            Default = H.Config.SellExactEnabled,
+            Callback = function(value) H.Config.SellExactEnabled = value end,
+        })
+        local function choices()
+            local values, seen = {}, {}
+            for key in pairs(H.Config.SellExactItems) do seen[key] = true end
+            for _, entry in ipairs(S.InventoryEntries()) do seen[identity(entry)] = true end
+            for key in pairs(seen) do values[#values + 1] = key end
+            table.sort(values)
+            return values
+        end
+        local initialSelection = {}
+        for key, value in pairs(H.Config.SellExactItems) do initialSelection[key] = value end
+        exact:AddDropdown("EH_SellExactItems", {
+            Text = "Exact items to sell", Values = choices(), Multi = true,
+            Searchable = true,
+            Callback = function(value)
+                H.Config.SellExactItems = type(value) == "table" and value or {}
+            end,
+        })
+        if options and options.EH_SellExactItems then
+            options.EH_SellExactItems:SetValue(initialSelection)
+        end
+        exact:AddButton({Text = "REFRESH INVENTORY ITEM LIST", Func = function()
+            if options and options.EH_SellExactItems then
+                local selected = {}
+                for key, value in pairs(H.Config.SellExactItems) do selected[key] = value end
+                options.EH_SellExactItems:SetValues(choices())
+                options.EH_SellExactItems:SetValue(selected)
+            end
+        end})
+        exact:AddButton({Text = "COPY COMMON ITEM IDENTITIES", Func = function()
+            S.ExportItemIdentities()
+        end})
         local g = tabs.Sell:AddRightGroupbox("Trinket Sell Fix")
         g:AddButton({Text = "TEST SELL SELECTED TRINKETS ONLY", Func = function()
             S.TestSellTrinketsOnly()

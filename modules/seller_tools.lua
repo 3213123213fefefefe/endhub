@@ -5,6 +5,26 @@ return function(H)
     local Options = H.UI and H.UI.Options
     local Tabs = H.UI and H.UI.Tabs
 
+    function T.ExportFixedClement()
+        local seller = C.FindClement()
+        local part = seller and C.NPCAnchor(seller)
+        local pos = part and part.Position or C.GetSavedSeller()
+        if not pos then
+            H.State.SellStatus = "CAPTURE CLEMENT FIRST"
+            return false
+        end
+        local key = tostring(game.PlaceId)
+        H.Config.FixedSellerByPlace = H.Config.FixedSellerByPlace or {}
+        H.Config.FixedSellerByPlace[key] = {pos.X, pos.Y, pos.Z}
+        local saved = H.PersistenceManager and H.PersistenceManager.SaveConfig(true)
+        local text = string.format('[EndHub Clement] PlaceId=%s | ["%s"] = {%.9g, %.9g, %.9g},',
+            key, key, pos.X, pos.Y, pos.Z)
+        print(text)
+        if setclipboard then pcall(setclipboard, text) end
+        H.State.SellStatus = saved and "FIXED CLEMENT SAVED + EXPORTED" or "CLEMENT EXPORTED; DISK SAVE FAILED"
+        return true, text
+    end
+
     local function fmt(pos)
         if not pos then return "--" end
         return string.format("%.2f, %.2f, %.2f", pos.X, pos.Y, pos.Z)
@@ -51,6 +71,10 @@ return function(H)
     end
 
     function T.Clear()
+        if H.Config.FixedSellerByPlace then
+            H.Config.FixedSellerByPlace[tostring(game.PlaceId)] = nil
+            if H.PersistenceManager then H.PersistenceManager.SaveConfig(true) end
+        end
         C.ClearSavedSeller()
         H.State.SellStatus = "SELLER POS CLEARED"
     end
@@ -71,6 +95,7 @@ return function(H)
         local g = Tabs.Sell:AddRightGroupbox("Seller Position Memory")
         g:AddLabel("EH_SavedSellerExact", {Text = "Saved: --", DoesWrap = true})
         g:AddButton({Text = "CAPTURE CLEMENT POSITION", Func = function() T.CaptureClement() end})
+        g:AddButton({Text = "FIX + COPY CLEMENT COORDINATES", Func = function() T.ExportFixedClement() end})
         g:AddButton({Text = "SAVE MY POSITION AS CLEMENT AREA", Func = function() T.CaptureCurrentPosition() end})
         g:AddButton({Text = "TP TO SAVED POSITION (TEST)", Func = function() T.TeleportSaved() end})
         g:AddButton({Text = "CLEAR SAVED POSITION", Func = function() T.Clear() end})

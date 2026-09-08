@@ -165,6 +165,16 @@ return function(H)
     end
 
     function C.GetSavedSeller()
+        -- Fill from a real coordinate export, keyed by map PlaceId.
+        local embeddedByPlace = {
+            -- ["PLACE_ID"] = {X, Y, Z},
+        }
+        local key = tostring(game.PlaceId)
+        local fixed = embeddedByPlace[key]
+            or (H.Config.FixedSellerByPlace and H.Config.FixedSellerByPlace[key])
+        if type(fixed) == "table" and tonumber(fixed[1]) and tonumber(fixed[2]) and tonumber(fixed[3]) then
+            return Vector3.new(tonumber(fixed[1]), tonumber(fixed[2]), tonumber(fixed[3]))
+        end
         local t = ENV.ENDHUB_SELLER_POSITIONS
         local v = t["Clement, Merchant"] or t.Clement
         if type(v) == "table" and tonumber(v[1]) and tonumber(v[2]) and tonumber(v[3]) then
@@ -185,7 +195,7 @@ return function(H)
         end
 
         for _, npc in ipairs(folder:GetChildren()) do
-            if npc:IsA("Model") and string.find(string.lower(npc.Name), "merchant", 1, true) then
+            if npc:IsA("Model") and npc.Name == "Clement" then
                 local p = C.NPCAnchor(npc)
                 if p then C.SaveSellerPosition(p.Position) end
                 return npc
