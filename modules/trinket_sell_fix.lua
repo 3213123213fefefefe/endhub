@@ -17,31 +17,6 @@ return function(H)
         return false
     end
 
-    local function boolValue(tool, name)
-        local v = tool and tool:FindFirstChild(name)
-        if v and v:IsA("BoolValue") then return v.Value end
-        return nil
-    end
-
-    local function isTrinket(tool, ref)
-        if not tool then return false end
-
-        -- Strongest signal: the actual inventory category frame.
-        if isInside(ref, "TrinketsFrame") then return true end
-
-        -- Normal metadata signal.
-        if boolValue(tool, "IsTrinket") == true then return true end
-
-        -- Rings/amulets in this game carry BulkSell. During some inventory
-        -- rebuilds their IsTrinket BoolValue can be unreliable, but the
-        -- combination of IsTrinket marker + BulkSell is stable.
-        if tool:FindFirstChild("IsTrinket") and tool:FindFirstChild("BulkSell") then
-            return true
-        end
-
-        return false
-    end
-
     local frameMap = {
         WeaponFrame = "Weapon",
         ItemsFrame = "Item",
@@ -64,9 +39,8 @@ return function(H)
         local tool = ref.Value
         if not tool then return nil end
 
-        if isTrinket(tool, ref) then return "Trinket" end
-
-        -- Prefer the inventory frame for every other category.
+        -- IsTrinket is also true on weapons, outfits and potions.
+        -- Only the inventory tab establishes the Trinket category.
         local node = ref.Parent
         while node do
             local mapped = frameMap[node.Name]
@@ -102,8 +76,7 @@ return function(H)
         return 1
     end
 
-    -- Replace inventory scanning with one that explicitly understands
-    -- TrinketsFrame + BulkSell instead of depending on one metadata flag.
+    -- Classify inventory entries by their tab before using other metadata.
     function S.InventoryEntries()
         local pg = Player:FindFirstChild("PlayerGui")
         local inv = pg and pg:FindFirstChild("InventoryGui", true)
@@ -372,6 +345,20 @@ return function(H)
     -- UI diagnostics/test controls.
     local tabs = H.UI and H.UI.Tabs
     local options = H.UI and H.UI.Options
+    -- Apply the requested Common/Trinket selection once. Persist the marker
+    -- with the regular config so later user filter changes survive reloads.
+    if not H.Config.TrinketCategoryFilterMigrated then
+        S.SetFilter("Common", "Trinket", true)
+        if options and options.EH_Sell_Common then
+            local selected = {}
+            for _, category in ipairs(H.SellCategories or {}) do
+                if S.GetFilter("Common", category) then selected[category] = true end
+            end
+            options.EH_Sell_Common:SetValue(selected)
+        end
+        H.Config.TrinketCategoryFilterMigrated = true
+    end
+
     if tabs and tabs.Sell then
         local g = tabs.Sell:AddRightGroupbox("Trinket Sell Fix")
         g:AddButton({Text = "TEST SELL SELECTED TRINKETS ONLY", Func = function()
@@ -408,5 +395,5 @@ return function(H)
         end)
     end
 
-    print("[EndHub] robust trinket sell fix loaded")
+    print("[EndHub] trinket sell: tab classification fix loaded")
 end
