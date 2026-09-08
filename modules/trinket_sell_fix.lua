@@ -19,6 +19,18 @@ return function(H)
     if H.Config.SellExactEnabled == nil then H.Config.SellExactEnabled = true end
 
     local function identity(entry)
+        if entry.Category == "Tome" then
+            local id = entry.Tool:FindFirstChild("EnhancementId")
+            if id and id:IsA("StringValue") and id.Value ~= "" then
+                -- Captured from the user's owned tome. Keep the existing
+                -- selection key so saved choices continue to work.
+                if id.Value == "Sharpness1" then
+                    return "Tome|Enhancement Tome (Sharpness I)"
+                end
+                -- Different enhancements must not match the plain tome.
+                return "Tome|EnhancementId=" .. id.Value
+            end
+        end
         return entry.Category .. "|" .. entry.Tool.Name
     end
 
