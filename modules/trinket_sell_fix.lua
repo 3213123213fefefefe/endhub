@@ -265,46 +265,123 @@ return function(H)
         end)
     end
 
+    local saleGeneration = 0
+
     local function fireSplit(trinketOnly)
-        local remote = getSellRemote()
-        if not remote then
-            H.State.SellStatus = "SELL REMOTE MISSING"
-            return false
-        end
-
-        local normal, trinkets, normalStacks, trinketStacks = buildSplitPayloads()
-        if trinketOnly then normal, normalStacks = {}, 0 end
-
-        runtime.LastSold = #normal + #trinkets
-        runtime.LastStacks = normalStacks + trinketStacks
-
-        if #normal == 0 and #trinkets == 0 then
-            H.State.SellStatus = trinketOnly and "NO SELECTED TRINKETS" or "NO MATCHING ITEMS"
-            return false
-        end
-
-        local ok, err = pcall(function()
-            -- Keep trinkets in their own SellItemsEvent call. The captured
-            -- normal game behavior sends the same owned Tool reference once
-            -- per stack quantity; that exact shape is preserved here.
-            if #normal > 0 then remote:FireServer(normal) end
-            if #normal > 0 and #trinkets > 0 then task.wait(0.12) end
-            if #trinkets > 0 then remote:FireServer(trinkets) end
+        if runtime.SaleBusy then return end
+        runtime.SaleBusy = true
+        runtime.LastSold = 0
+        runtime.LastStacks = 0
+        local generation = saleGeneration
+        task.spawn(function()
+            local decreased, sent, failures = 0, 0, {}
+            local deadline = tick() + 120
+            local function cancelled()
+                return H.State.Unloaded or generation ~= saleGeneration
+                    or not (H.Config.AutoSell or runtime.OneShot)
+            end
+            local function snapshot()
+                local pg = Player:FindFirstChild("PlayerGui")
+                if not pg or not pg:FindFirstChild("InventoryGui", true) then return nil end
+                local entries, counts = S.InventoryEntries(), {}
+                for _, entry in ipairs(entries) do
+                    local key = identity(entry)
+                    counts[key] = (counts[key] or 0) + entry.Amount
+                end
+                return entries, counts
+            end
+            local function finish(message)
+                if cancelled() then return end
+                runtime.OneShot = false
+                runtime.TrinketOnlyOnce = false
+                runtime.SellerReady = false
+                H.Config.AutoSell = false
+                -- Let Farm -> Sell resume if capacity has reached its target.
+                -- Otherwise pause rather than endlessly retry unsellable items.
+                if H.Config.AutoFarmSell then
+                    C.ReadCapacity()
+                    if H.State.InventoryPercent <= H.Config.ResumeAtPercent then
+                        S.AutoFarmStep()
+                    else
+                        H.Config.AutoFarmSell = false
+                        message = message .. " | FARM PAUSED: CHECK REMAINING ITEMS"
+                    end
+                end
+                H.State.SellStatus = message
+            end
+            local ok, err = pcall(function()
+                local remote = getSellRemote()
+                if not remote then finish("SELL REMOTE MISSING") return end
+                while not cancelled() and tick() < deadline do
+                    local entries, counts = snapshot()
+                    if not entries then finish("INVENTORY UNAVAILABLE - SELL PAUSED") return end
+                    local chosen
+                    for _, entry in ipairs(entries) do
+                        local key = identity(entry)
+                        local selected = entry.Tool.Name ~= "Bag"
+                            and (exactSelected(entry) or S.GetFilter(C.NormalizeRarity(entry.Rarity), entry.Category))
+                        if selected and (not trinketOnly or entry.Category == "Trinket")
+                            and (failures[key] or 0) < 2 then
+                            chosen = entry
+                            break
+                        end
+                    end
+                    if not chosen then
+                        local blocked = 0
+                        for _, attempts in pairs(failures) do if attempts >= 2 then blocked = blocked + 1 end end
+                        finish(string.format("DONE: COUNT DECREASED %d | UNCHANGED %d", decreased, blocked))
+                        return
+                    end
+                    local key, tool = identity(chosen), chosen.Tool
+                    local before = counts[key] or 0
+                    local seller = C.FindClement()
+                    local part = seller and C.NPCAnchor(seller)
+                    local root = C.Root()
+                    if not part or not root or (root.Position - part.Position).Magnitude > H.Config.SellerInteractDistance then
+                        finish("SELLER OUT OF RANGE - SELL PAUSED") return
+                    end
+                    -- Proven in-game: one owned reference sells the stack.
+                    -- Never duplicate the reference or mix another item into this request.
+                    H.State.SellStatus = "SELLING " .. chosen.Tool.Name
+                    print("[EndHub AutoSell] " .. key .. " | BEFORE=" .. before)
+                    remote:FireServer({tool})
+                    sent = sent + 1
+                    runtime.LastSell = tick()
+                    runtime.LastStacks = sent
+                    task.wait(1.5)
+                    if cancelled() then return end
+                    local afterEntries, afterCounts = snapshot()
+                    if not afterEntries then finish("CANNOT VERIFY - SELL PAUSED") return end
+                    local after = afterCounts[key] or 0
+                    if after < before then
+                        decreased = decreased + before - after
+                        runtime.LastSold = decreased
+                        failures[key] = 0
+                        print("[EndHub AutoSell] " .. key .. " | AFTER=" .. after .. " | COUNT DECREASED")
+                    else
+                        failures[key] = (failures[key] or 0) + 1
+                        print("[EndHub AutoSell] " .. key .. " | AFTER=" .. after .. " | NO DECREASE")
+                        if failures[key] < 2 then
+                            local seller = C.FindClement()
+                            local part = seller and C.NPCAnchor(seller)
+                            local root = C.Root()
+                            if not part or not root or (root.Position - part.Position).Magnitude > H.Config.SellerInteractDistance then
+                                finish("SELLER OUT OF RANGE - SELL PAUSED") return
+                            end
+                            interactSeller(seller)
+                            task.wait(1)
+                        end
+                    end
+                end
+                if not cancelled() then finish("SELL TIME LIMIT - CHECK REMAINING ITEMS") end
+            end)
+            if not ok and not cancelled() then
+                warn("[EndHub AutoSell] " .. tostring(err))
+                finish("SELL ERROR: " .. tostring(err))
+            end
+            runtime.SaleBusy = false
         end)
-
-        if not ok then
-            H.State.SellStatus = "SELL ERROR: " .. tostring(err)
-            warn("[EndHub Trinket Sell]", err)
-            return false
-        end
-
-        H.State.SellStatus = string.format(
-            "SENT %d NORMAL + %d TRINKETS",
-            #normal, #trinkets
-        )
-        return true
     end
-
 
     -- A bounded diagnostic: use current owned references, one item per request.
     -- Inventory changes are observations, not server acknowledgements.
@@ -312,11 +389,13 @@ return function(H)
     local previousStop = S.Stop
     function S.Stop()
         diagnosticGeneration = diagnosticGeneration + 1
+        saleGeneration = saleGeneration + 1
+        runtime.TrinketOnlyOnce = false
         if previousStop then previousStop() end
     end
 
     function S.TestRemainingIndividually()
-        if runtime.IndividualBusy then return end
+        if runtime.IndividualBusy or runtime.SaleBusy then return end
         local seller = C.FindClement()
         local anchor = seller and C.NPCAnchor(seller)
         local root = C.Root()
@@ -382,7 +461,20 @@ return function(H)
         end)
     end
 
+    local previousStart, previousMatching = S.Start, S.SellMatching
+    function S.Start()
+        saleGeneration = saleGeneration + 1
+        runtime.TrinketOnlyOnce = false
+        if previousStart then previousStart() end
+    end
+    function S.SellMatching()
+        saleGeneration = saleGeneration + 1
+        runtime.TrinketOnlyOnce = false
+        if previousMatching then previousMatching() end
+    end
+
     function S.TestSellTrinketsOnly()
+        saleGeneration = saleGeneration + 1
         runtime.TrinketOnlyOnce = true
         runtime.OneShot = true
         runtime.InteractOnly = false
@@ -394,7 +486,7 @@ return function(H)
     -- Replace only the seller step. Farm logic, saved Clement position,
     -- filters and all other features remain untouched.
     function S.Step()
-        if H.State.Unloaded or runtime.IndividualBusy then return end
+        if H.State.Unloaded or runtime.IndividualBusy or runtime.SaleBusy then return end
         local active = H.Config.AutoSell or runtime.OneShot or runtime.InteractOnly
         if not active then return end
 
@@ -441,7 +533,7 @@ return function(H)
 
         C.Noclip(true)
 
-        if tick() - runtime.LastInteract >= H.Config.SellerInteractInterval then
+        if not runtime.SellerReady then
             runtime.LastInteract = tick()
             H.State.SellStatus = "INTERACTING"
             interactSeller(seller)
@@ -460,20 +552,11 @@ return function(H)
         end
 
         if runtime.SellerReady
-        and tick() - runtime.ReadyAt >= 0.35
+        and tick() - runtime.ReadyAt >= 1
         and tick() - runtime.LastSell >= H.Config.SellInterval then
             runtime.LastSell = tick()
             local trinketOnly = runtime.TrinketOnlyOnce == true
-            local sold = fireSplit(trinketOnly)
-
-            if runtime.OneShot then
-                runtime.OneShot = false
-                runtime.TrinketOnlyOnce = false
-                runtime.SellerReady = false
-                if sold then
-                    H.State.SellStatus = trinketOnly and "TRINKET TEST SENT" or "ONE-SHOT SENT"
-                end
-            end
+            fireSplit(trinketOnly)
         end
     end
 
