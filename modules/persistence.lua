@@ -21,6 +21,7 @@ return function(H)
         Desync = true,
         SpeedModifierEnabled = true,
         BossBotEnabled = true,
+        NoKillbrick = true,
     }
 
     local function serializableCopy(value, depth)
