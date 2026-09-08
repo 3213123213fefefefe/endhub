@@ -348,9 +348,23 @@ return function(H)
                     sent = sent + 1
                     runtime.LastSell = tick()
                     runtime.LastStacks = sent
-                    task.wait(1.5)
-                    if cancelled() then return end
-                    local afterEntries, afterCounts = snapshot()
+                    -- Advance as soon as replication shows a stable decrease.
+                    -- Retain the old 1.5s allowance for slow server responses.
+                    local verifyUntil = tick() + 1.5
+                    local afterEntries, afterCounts
+                    local confirmations = 0
+                    task.wait(0.25)
+                    repeat
+                        if cancelled() then return end
+                        afterEntries, afterCounts = snapshot()
+                        if afterEntries and (afterCounts[key] or 0) < before then
+                            confirmations = confirmations + 1
+                        else
+                            confirmations = 0
+                        end
+                        if confirmations >= 2 or tick() >= verifyUntil then break end
+                        task.wait(math.min(0.10, math.max(0, verifyUntil - tick())))
+                    until false
                     if not afterEntries then finish("CANNOT VERIFY - SELL PAUSED") return end
                     local after = afterCounts[key] or 0
                     if after < before then
