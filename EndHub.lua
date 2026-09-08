@@ -52,6 +52,19 @@ local H = {
         BossNoclip = true,
         BossAimPart = "Head",
 
+        MobFarmEnabled = false,
+        MobFarmWeaponName = "Use Equipped",
+        MobFarmMoveMode = "Fly",
+        MobFarmDetectionRange = 600,
+        MobFarmDistance = 32,
+        MobFarmSafetyMargin = 10,
+        MobFarmHeight = 8,
+        MobFarmFlySpeed = 95,
+        MobFarmShotInterval = 0.45,
+        MobFarmOrbitSpeed = 35,
+        MobFarmLockAim = true,
+        MobFarmNoclip = true,
+
         NoFog = false,
         Fullbright = false,
         FullbrightBrightness = 4,
@@ -87,6 +100,12 @@ local H = {
         BossHP = "--/--",
         BossWeapon = "None",
         BossDistance = 0,
+
+        MobFarmStatus = "IDLE",
+        MobFarmTarget = "None",
+        MobFarmHP = "--/--",
+        MobFarmCandidates = 0,
+        MobFarmObservedKills = 0,
     }
 }
 
@@ -123,6 +142,7 @@ local order = {
     "modules/legacy_features.lua",
     "modules/keybinds.lua",
     "modules/boss_ui.lua",
+    "modules/mob_farm.lua",
 }
 
 for _, path in ipairs(order) do loadModule(path) end
@@ -140,11 +160,13 @@ function H:Unload()
     self.Config.AutoFarmSell = false
     self.Config.SpeedModifierEnabled = false
     self.Config.BossBotEnabled = false
+    self.Config.MobFarmEnabled = false
     self.Config.NoKillbrick = false
 
     if self.Farm and self.Farm.Stop then pcall(self.Farm.Stop) end
     if self.Sell and self.Sell.Stop then pcall(self.Sell.Stop) end
     if self.Boss and self.Boss.Stop then pcall(self.Boss.Stop) end
+    if self.MobFarm and self.MobFarm.Stop then pcall(self.MobFarm.Stop) end
     if self.NoKillbrick and self.NoKillbrick.Reset then pcall(self.NoKillbrick.Reset) end
     if self.PlayerTools and self.PlayerTools.Reset then pcall(self.PlayerTools.Reset) end
     if self.Movement and self.Movement.Reset then pcall(self.Movement.Reset) end
