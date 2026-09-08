@@ -12,10 +12,11 @@ return function(H)
     H.Config.SellExactItems = H.Config.SellExactItems or {
         ["Trinket|Amulet"] = true, ["Trinket|Goblet"] = true,
         ["Trinket|Old Amulet"] = true, ["Trinket|Old Ring"] = true,
-        ["Trinket|Ring"] = true, ["Item|Bag"] = true,
+        ["Trinket|Ring"] = true,
         ["Tome|Enhancement Tome"] = true,
         ["Tome|Enhancement Tome (Sharpness I)"] = true,
     }
+    H.Config.SellExactItems["Item|Bag"] = nil
     if H.Config.SellExactEnabled == nil then H.Config.SellExactEnabled = true end
 
     local function identity(entry)
@@ -185,7 +186,8 @@ return function(H)
             runtime.RarityCounts[category] = runtime.RarityCounts[category] or {}
             runtime.RarityCounts[category][rarity] = (runtime.RarityCounts[category][rarity] or 0) + 1
 
-            local filterOn = exactSelected(entry) or S.GetFilter(rarity, category)
+            local filterOn = entry.Tool.Name ~= "Bag"
+                and (exactSelected(entry) or S.GetFilter(rarity, category))
             if category == "Trinket" then
                 local marker = entry.Tool:FindFirstChild("IsTrinket")
                 local markerText = marker and marker:IsA("BoolValue") and tostring(marker.Value) or tostring(marker ~= nil)
@@ -303,6 +305,83 @@ return function(H)
         return true
     end
 
+
+    -- A bounded diagnostic: use current owned references, one item per request.
+    -- Inventory changes are observations, not server acknowledgements.
+    local diagnosticGeneration = 0
+    local previousStop = S.Stop
+    function S.Stop()
+        diagnosticGeneration = diagnosticGeneration + 1
+        if previousStop then previousStop() end
+    end
+
+    function S.TestRemainingIndividually()
+        if runtime.IndividualBusy then return end
+        local seller = C.FindClement()
+        local anchor = seller and C.NPCAnchor(seller)
+        local root = C.Root()
+        if not root or not anchor
+            or (root.Position - anchor.Position).Magnitude > H.Config.SellerInteractDistance then
+            H.State.SellStatus = "STAND BESIDE CLEMENT FOR TEST"
+            return
+        end
+        -- Suspend automation so repeated NPC interaction cannot interrupt
+        -- this isolated sale. The user can restart automation after the test.
+        S.Stop()
+        H.Config.AutoFarmSell = false
+        if H.Farm and H.Farm.Stop then H.Farm.Stop() end
+        local generation = diagnosticGeneration
+        runtime.IndividualBusy = true
+        task.spawn(function()
+            local function cancelled()
+                return H.State.Unloaded or generation ~= diagnosticGeneration
+                    or H.Config.AutoSell or H.Config.AutoFarmSell
+            end
+            local function find(name)
+                local pg = Player:FindFirstChild("PlayerGui")
+                if not pg or not pg:FindFirstChild("InventoryGui", true) then return nil, nil end
+                local total, first = 0, nil
+                for _, entry in ipairs(S.InventoryEntries()) do
+                    if entry.Category == "Trinket" and entry.Tool.Name == name then
+                        total = total + entry.Amount
+                        first = first or entry.Tool
+                    end
+                end
+                return first, total
+            end
+            local ok, err = pcall(function()
+                local remote = getSellRemote()
+                if not remote then error("SELL REMOTE MISSING") end
+                interactSeller(seller)
+                task.wait(1)
+                for _, name in ipairs({"Goblet", "Old Amulet"}) do
+                    if cancelled() then return end
+                    local tool, before = find(name)
+                    if not tool then
+                        print("[EndHub Individual] " .. name .. " | NOT FOUND / INVENTORY UNAVAILABLE")
+                    else
+                        H.State.SellStatus = "TESTING " .. name
+                        print("[EndHub Individual] " .. name .. " | BEFORE=" .. tostring(before)
+                            .. " | REF=" .. tool:GetFullName())
+                        remote:FireServer({tool})
+                        task.wait(1.5)
+                        if cancelled() then return end
+                        local _, after = find(name)
+                        print("[EndHub Individual] " .. name .. " | AFTER=" .. tostring(after)
+                            .. " | " .. (after and after < before and "COUNT DECREASED"
+                                or after and "NO DECREASE" or "CANNOT VERIFY"))
+                    end
+                end
+                H.State.SellStatus = "INDIVIDUAL TEST COMPLETE - SEE CONSOLE"
+            end)
+            runtime.IndividualBusy = false
+            if not ok then
+                warn("[EndHub Individual] " .. tostring(err))
+                H.State.SellStatus = "INDIVIDUAL TEST ERROR"
+            end
+        end)
+    end
+
     function S.TestSellTrinketsOnly()
         runtime.TrinketOnlyOnce = true
         runtime.OneShot = true
@@ -315,7 +394,7 @@ return function(H)
     -- Replace only the seller step. Farm logic, saved Clement position,
     -- filters and all other features remain untouched.
     function S.Step()
-        if H.State.Unloaded then return end
+        if H.State.Unloaded or runtime.IndividualBusy then return end
         local active = H.Config.AutoSell or runtime.OneShot or runtime.InteractOnly
         if not active then return end
 
@@ -454,6 +533,9 @@ return function(H)
             S.ExportItemIdentities()
         end})
         local g = tabs.Sell:AddRightGroupbox("Trinket Sell Fix")
+        g:AddButton({Text = "TEST GOBLET + OLD AMULET INDIVIDUALLY", Func = function()
+            S.TestRemainingIndividually()
+        end})
         g:AddButton({Text = "TEST SELL SELECTED TRINKETS ONLY", Func = function()
             S.TestSellTrinketsOnly()
         end})
