@@ -32,6 +32,11 @@ try:
         error = lib.lua_pcallk(state, 0, 0, 0, 0, None)
     if error:
         raise SystemExit(lib.lua_tolstring(state, -1, None).decode())
+    lib.lua_settop(state, 0)
+    error = lib.luaL_loadfilex(state, b"tests/trinket_rarity_test.lua", None)
+    if not error:
+        error = lib.lua_pcallk(state, 0, 0, 0, 0, None)
+    if error:
+        raise SystemExit(lib.lua_tolstring(state, -1, None).decode())
 finally:
     lib.lua_close(state)
-
