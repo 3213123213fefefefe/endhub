@@ -11,6 +11,10 @@ return function(H)
     local saved = ENV.ENDHUB_KEYBINDS
     local actions = {}
 
+    -- Old builds could bind Show / Hide UI as a normal action. Ignore that
+    -- stale value so an old MouseButton1 binding cannot keep toggling the menu.
+    saved.feature_show_ui = nil
+
     local function keyName(key)
         if key == nil then return nil end
         if type(key) == "string" then
@@ -68,12 +72,7 @@ return function(H)
     addKey(left, "farm_sell", "Farm -> Full -> Sell", function()
         flip("EH_FarmSell", function() end)
     end)
-    addKey(left, "fly", "Fly", function()
-        flip("EH_Fly", function() H.Config.MovementFly = not H.Config.MovementFly end)
-    end)
-    addKey(left, "noclip", "Movement Noclip", function()
-        flip("EH_Noclip", function() H.Config.MovementNoclip = not H.Config.MovementNoclip end)
-    end)
+    -- Fly and Movement Noclip keybinds are configured inline beside their switches.
     addKey(left, "reset_character", "Reset Character", function() H.Movement.ResetCharacter() end)
     addKey(left, "teleport_player", "Teleport Selected", function() H.PlayerTools.TeleportSelected() end)
     addKey(left, "boss", "Boss Bot", function()
@@ -82,7 +81,24 @@ return function(H)
     addKey(left, "mobfarm", "Mob Farm", function()
         flip("EH_MobFarmEnabled", function() H.MobFarm.Toggle() end)
     end)
-    addKey(left, "show_ui", "Show / Hide UI", function() Library:Toggle() end)
+
+    local menuInitial = saved.menu_toggle or "Insert"
+    if not Enum.KeyCode[menuInitial] then menuInitial = "Insert" end
+    Library.ToggleKeybind = Enum.KeyCode[menuInitial]
+    left:AddLabel("Show / Hide UI"):AddKeyPicker("EH_MenuToggleKey", {
+        Default = menuInitial,
+        Mode = "Press",
+        Text = "Show / Hide UI",
+        NoUI = false,
+        Callback = function() end,
+        ChangedCallback = function(newKey)
+            local name = keyName(newKey)
+            if not name or not Enum.KeyCode[name] then name = "Insert" end
+            saved.menu_toggle = name
+            Library.ToggleKeybind = Enum.KeyCode[name]
+            if H.Core.SaveKeybinds then H.Core.SaveKeybinds() end
+        end,
+    })
 
     addKey(right, "auto_sell", "Auto Sell", function()
         flip("EH_AutoSell", function() if H.Config.AutoSell then H.Sell.Stop() else H.Sell.Start() end end)
