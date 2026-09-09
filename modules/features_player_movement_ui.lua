@@ -2,46 +2,99 @@ return function(H)
     local Tabs = H.UI and H.UI.Tabs
     if not Tabs or not H.Movement or not H.PlayerTools then return end
     local Options, Toggles = H.UI.Options, H.UI.Toggles
+    local ENV = getgenv()
+    ENV.ENDHUB_KEYBINDS = ENV.ENDHUB_KEYBINDS or {}
+    local saved = ENV.ENDHUB_KEYBINDS
 
-    local moveLeft = Tabs.Movement:AddLeftGroupbox("Movement")
-    local moveRight = Tabs.Movement:AddRightGroupbox("Settings")
+    local function keyName(key)
+        if key == nil then return nil end
+        if type(key) == "string" then
+            if key == "None" or key == "NONE" or key == "" then return nil end
+            return key
+        end
+        if typeof(key) == "EnumItem" then return key.Name end
+        return nil
+    end
 
-    moveLeft:AddToggle("EH_Fly", {
+    local function saveKey(id, key)
+        saved[id] = keyName(key)
+        if H.Core and H.Core.SaveKeybinds then H.Core.SaveKeybinds() end
+    end
+
+    ------------------------------------------------------------------------
+    -- Movement
+    ------------------------------------------------------------------------
+    -- Fly toggle and its settings live in the same box.
+    local flyGroup = Tabs.Movement:AddLeftGroupbox("Fly")
+    local moveGroup = Tabs.Movement:AddRightGroupbox("Movement")
+
+    local flyToggle = flyGroup:AddToggle("EH_Fly", {
         Text = "Fly", Default = false,
         Callback = function(v) H.Config.MovementFly = v end,
     })
-    moveLeft:AddToggle("EH_Noclip", {
+    flyToggle:AddKeyPicker("EH_InlineFlyKey", {
+        Default = saved.feature_fly or "None",
+        Mode = "Press",
+        Text = "Fly",
+        NoUI = false,
+        Callback = function(value)
+            if value == false or H.State.Unloaded or not H.Core.InputFocused() then return end
+            if Toggles.EH_Fly then Toggles.EH_Fly:SetValue(not Toggles.EH_Fly.Value) end
+        end,
+        ChangedCallback = function(newKey)
+            saveKey("feature_fly", newKey)
+        end,
+    })
+
+    flyGroup:AddSlider("EH_FlySpeed", {
+        Text = "Fly speed", Default = H.Config.MovementFlySpeed,
+        Min = 20, Max = 400, Rounding = 0,
+        Callback = function(v) H.Config.MovementFlySpeed = v end,
+    })
+    flyGroup:AddButton({Text = "Stop Fly", Func = function()
+        H.Movement.StopFly()
+        if Toggles.EH_Fly then Toggles.EH_Fly:SetValue(false) end
+    end})
+
+    local noclipToggle = moveGroup:AddToggle("EH_Noclip", {
         Text = "Noclip", Default = false,
         Callback = function(v)
             H.Config.MovementNoclip = v
             if not v and not H.State.Running then H.Core.Noclip(false) end
         end,
     })
-    moveLeft:AddToggle("EH_SpeedModifierEnabled", {
+    noclipToggle:AddKeyPicker("EH_InlineNoclipKey", {
+        Default = saved.feature_noclip or "None",
+        Mode = "Press",
+        Text = "Noclip",
+        NoUI = false,
+        Callback = function(value)
+            if value == false or H.State.Unloaded or not H.Core.InputFocused() then return end
+            if Toggles.EH_Noclip then Toggles.EH_Noclip:SetValue(not Toggles.EH_Noclip.Value) end
+        end,
+        ChangedCallback = function(newKey)
+            saveKey("feature_noclip", newKey)
+        end,
+    })
+
+    moveGroup:AddToggle("EH_SpeedModifierEnabled", {
         Text = "Speed modifier", Default = false,
         Callback = function(v) H.Movement.SetSpeedModifier(v) end,
     })
-    moveLeft:AddButton({Text = "Stop Fly", Func = function()
-        H.Movement.StopFly()
-        if Toggles.EH_Fly then Toggles.EH_Fly:SetValue(false) end
-    end})
-
-    moveRight:AddSlider("EH_FlySpeed", {
-        Text = "Fly speed", Default = H.Config.MovementFlySpeed,
-        Min = 20, Max = 400, Rounding = 0,
-        Callback = function(v) H.Config.MovementFlySpeed = v end,
-    })
-    moveRight:AddSlider("EH_WalkSpeed", {
+    moveGroup:AddSlider("EH_WalkSpeed", {
         Text = "Walk speed", Default = H.Config.WalkSpeed,
         Min = 16, Max = 100, Rounding = 0,
         Callback = function(v) H.Config.WalkSpeed = v end,
     })
-    moveRight:AddSlider("EH_SpeedMultiplier", {
+    moveGroup:AddSlider("EH_SpeedMultiplier", {
         Text = "Speed multiplier", Default = H.Config.SpeedMultiplier,
         Min = 1, Max = 5, Rounding = 1, Suffix = "x",
         Callback = function(v) H.Config.SpeedMultiplier = v end,
     })
 
+    ------------------------------------------------------------------------
+    -- Players
+    ------------------------------------------------------------------------
     local function playerNames()
         local rows = H.PlayerTools.Names()
         if #rows == 0 then rows = {"None"} end
