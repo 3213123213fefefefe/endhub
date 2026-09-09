@@ -33,6 +33,19 @@ else
     warn("[EndHub menu8] FPS patch compile error: " .. tostring(fpsErr))
 end
 
-hub.WorkMenuPatch = "menu-server-8-fps"
-print("[EndHub Loader] menu-server-8-fps | Endure + server flow + lightweight runtime")
+local hopURL = "https://raw.githubusercontent.com/3213123213fefefefe/endhub/main/modules/server_hop_quality_patch.lua?v=" .. nonce
+local hopSource = game:HttpGet(hopURL)
+local hopFn, hopErr = loadstring(hopSource)
+if hopFn then
+    local hopInit = hopFn()
+    if type(hopInit) == "function" then
+        local ok, err = pcall(hopInit, hub)
+        if not ok then warn("[EndHub menu8] quality hop patch init error: " .. tostring(err)) end
+    end
+else
+    warn("[EndHub menu8] quality hop patch compile error: " .. tostring(hopErr))
+end
+
+hub.WorkMenuPatch = "menu-server-8-fps-hopq"
+print("[EndHub Loader] menu-server-8-fps-hopq | Endure + server flow + lightweight runtime + quality server hop")
 return hub
