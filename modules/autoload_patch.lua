@@ -34,11 +34,11 @@ return function(H)
             return false
         end
 
-        -- Do not permanently suppress a second queue attempt in the same job.
-        -- A failed teleport can consume/drop an executor queue entry. We only
-        -- debounce calls made almost simultaneously.
+        -- Potassium can start queued code while the source server is still alive.
+        -- Keep exactly one watcher per source job alive long enough to cover all
+        -- direct-hop retries instead of spawning several 25-second watchers.
         local now = tick()
-        if ENV.ENDHUB_QUEUE_JOB == JOB and now - (ENV.ENDHUB_QUEUE_AT or 0) < 1.5 then
+        if ENV.ENDHUB_QUEUE_JOB == JOB and now - (ENV.ENDHUB_QUEUE_AT or 0) < 125 then
             R.Continuity = "TELEPORT QUEUED"
             return true
         end
@@ -47,42 +47,51 @@ return function(H)
 local expectedUser, sourceJob, loaderURL = %s, %q, %q
 local Players = game:GetService("Players")
 
--- Some executors start queued code while the old DataModel/JobId is still
--- visible. Wait for the destination job instead of returning immediately.
-local deadline = tick() + 25
-while (not Players.LocalPlayer or tostring(game.JobId) == sourceJob) and tick() < deadline do
+local startedAt = tick()
+local deadline = startedAt + 120
+local announcedWait = false
+
+while tick() < deadline do
+    local player = Players.LocalPlayer
+    local currentJob = tostring(game.JobId)
+
+    if player and player.UserId ~= expectedUser then
+        warn("[EndHub AutoLoad] queued watcher landed on another account; cancelled")
+        return
+    end
+
+    if player and currentJob ~= sourceJob then
+        while not game:IsLoaded() do task.wait(0.10) end
+        task.wait(0.35)
+
+        local ok, source = pcall(function()
+            return game:HttpGet(loaderURL .. "?v=" .. tostring(os.time()) .. "-" .. tostring(math.random(100000,999999)))
+        end)
+        if not ok or type(source) ~= "string" then
+            warn("[EndHub AutoLoad] loader download failed: " .. tostring(source))
+            return
+        end
+
+        local fn, err = loadstring(source)
+        if not fn then
+            warn("[EndHub AutoLoad] loader compile failed: " .. tostring(err))
+            return
+        end
+
+        print("[EndHub AutoLoad] destination detected | user=" .. tostring(player.UserId) .. " | job=" .. currentJob)
+        local ran, runErr = pcall(fn)
+        if not ran then warn("[EndHub AutoLoad] loader runtime failed: " .. tostring(runErr)) end
+        return
+    end
+
+    if not announcedWait and tick() - startedAt >= 1 then
+        announcedWait = true
+        print("[EndHub AutoLoad] queue callback started in source job | waiting up to 120s for destination")
+    end
     task.wait(0.10)
 end
 
-local player = Players.LocalPlayer
-if not player or player.UserId ~= expectedUser then return end
-if tostring(game.JobId) == sourceJob then
-    warn("[EndHub AutoLoad] destination job was not observed; queued load cancelled")
-    return
-end
-
-while not game:IsLoaded() do task.wait(0.10) end
-
--- Give PlayerGui/replication a brief moment to exist before loading EndHub.
-task.wait(0.35)
-
-local ok, source = pcall(function()
-    return game:HttpGet(loaderURL .. "?v=" .. tostring(os.time()) .. "-" .. tostring(math.random(100000,999999)))
-end)
-if not ok or type(source) ~= "string" then
-    warn("[EndHub AutoLoad] loader download failed: " .. tostring(source))
-    return
-end
-
-local fn, err = loadstring(source)
-if not fn then
-    warn("[EndHub AutoLoad] loader compile failed: " .. tostring(err))
-    return
-end
-
-print("[EndHub AutoLoad] destination detected | user=" .. tostring(player.UserId) .. " | job=" .. tostring(game.JobId))
-local ran, runErr = pcall(fn)
-if not ran then warn("[EndHub AutoLoad] loader runtime failed: " .. tostring(runErr)) end
+warn("[EndHub AutoLoad] destination job was not observed after 120s; watcher expired")
 ]=], tostring(Player.UserId), JOB, loaderURL)
 
         local ok, err = pcall(queueFunction, code)
@@ -94,12 +103,12 @@ if not ran then warn("[EndHub AutoLoad] loader runtime failed: " .. tostring(run
 
         ENV.ENDHUB_QUEUE_JOB = JOB
         ENV.ENDHUB_QUEUE_AT = now
-        ENV.ENDHUB_QUEUED_JOB = JOB -- compatibility with older cycle diagnostics
+        ENV.ENDHUB_QUEUED_JOB = JOB
         R.Continuity = "TELEPORT QUEUED"
-        print("[EndHub AutoLoad] queued | user=" .. tostring(Player.UserId) .. " | sourceJob=" .. JOB)
+        print("[EndHub AutoLoad] watcher queued | user=" .. tostring(Player.UserId) .. " | sourceJob=" .. JOB .. " | ttl=120s")
         return true
     end
 
     R.AutoLoadPatchInstalled = true
-    print("[EndHub] teleport autoload patch loaded | waits for destination JobId")
+    print("[EndHub] teleport autoload patch v2 loaded | one 120s destination watcher per source job")
 end
