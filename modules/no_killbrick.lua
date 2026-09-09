@@ -152,3 +152,4 @@ return function(H)
 
     print("[EndHub] local No Killbrick loaded")
 end
+

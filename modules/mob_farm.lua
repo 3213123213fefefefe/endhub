@@ -476,3 +476,4 @@ return function(H)
 
     print("[EndHub] strict aggressive mob farm loaded")
 end
+

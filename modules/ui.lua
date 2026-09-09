@@ -45,17 +45,17 @@ return function(H)
     Library.HideInactiveKeybinds = false
     Library.KeybindFrameEnabled = false
 
-    local uiToggleKey = Enum.KeyCode.RightShift
-    local savedUi = ENV.ENDHUB_KEYBINDS and ENV.ENDHUB_KEYBINDS.ui_toggle
+    local uiToggleKey = Enum.KeyCode.RightControl
+    local savedUi = nil
     if type(savedUi) == "string" and Enum.KeyCode[savedUi] then uiToggleKey = Enum.KeyCode[savedUi] end
 
     local Window = Library:CreateWindow({
-        Title = "EndHub | Fable",
-        Footer = "Hydroxide UI Edition",
+        Title = "EndHub | Extras",
+        Footer = "Optional tools",
         Center = true,
         AutoShow = true,
         Resizable = true,
-        ShowCustomCursor = true,
+        ShowCustomCursor = false,
         NotifySide = "Right",
         ToggleKeybind = uiToggleKey,
         Size = UDim2.fromOffset(760, 620),
@@ -70,200 +70,11 @@ return function(H)
     }
 
     local Tabs = {
-        Botting = Window:AddTab("Botting"),
-        Sell = Window:AddTab("Sell"),
-        Movement = Window:AddTab("Movement"),
-        Players = Window:AddTab("Players"),
-        Visuals = Window:AddTab("Visuals"),
-        Keybinds = Window:AddTab("Keybinds"),
-        Interface = Window:AddTab("Interface"),
+        Movement = Window:AddTab("Movement"), Players = Window:AddTab("Players"),
+        Visuals = Window:AddTab("Visuals"), Keybinds = Window:AddTab("Keybinds"),
+        Sell = Window:AddTab("Diagnostics"), Interface = Window:AddTab("Settings"),
     }
     H.UI.Tabs = Tabs
-
-    ------------------------------------------------------------------------
-    -- BOTTING
-    ------------------------------------------------------------------------
-    local BotLeft = Tabs.Botting:AddLeftGroupbox("Trinket Bot")
-    local BotRight = Tabs.Botting:AddRightGroupbox("Status")
-
-    BotLeft:AddButton({Text = "Start Trinket Bot", Func = function() H.Farm.Start() end})
-    BotLeft:AddButton({Text = "Pause Trinket Bot", Func = function() H.Farm.Stop() end})
-
-    BotLeft:AddToggle("EH_AutoPickup", {
-        Text = "Auto Pickup [E]",
-        Default = H.Config.AutoPickup,
-        Callback = function(v) H.Config.AutoPickup = v end,
-    })
-
-    BotLeft:AddToggle("EH_BotNoclip", {
-        Text = "Bot Noclip",
-        Default = H.Config.BotNoclip,
-        Callback = function(v) H.Config.BotNoclip = v end,
-    })
-
-    BotLeft:AddToggle("EH_FarmSell", {
-        Text = "Farm -> Full -> Sell -> Resume",
-        Default = H.Config.AutoFarmSell,
-        Callback = function(v)
-            H.Config.AutoFarmSell = v
-            H.State.FarmSellPhase = "FARM"
-            if v then
-                H.Sell.Stop()
-                H.Farm.Start()
-            else
-                H.Sell.Stop()
-                H.Farm.Stop()
-            end
-        end,
-    })
-
-    BotLeft:AddSlider("EH_PickupDistance", {
-        Text = "Pickup distance",
-        Default = H.Config.PickupDistance,
-        Min = 2, Max = 15, Rounding = 1, Suffix = " studs",
-        Callback = function(v) H.Config.PickupDistance = v end,
-    })
-
-    BotLeft:AddSlider("EH_TargetHeight", {
-        Text = "TP height",
-        Default = H.Config.TargetHeight,
-        Min = 0, Max = 10, Rounding = 1, Suffix = " studs",
-        Callback = function(v) H.Config.TargetHeight = v end,
-    })
-
-    BotLeft:AddSlider("EH_PickupInterval", {
-        Text = "E interval",
-        Default = H.Config.PickupInterval,
-        Min = 0.10, Max = 1.00, Rounding = 2, Suffix = "s",
-        Callback = function(v) H.Config.PickupInterval = v end,
-    })
-
-    BotLeft:AddSlider("EH_TargetTimeout", {
-        Text = "Target timeout",
-        Default = H.Config.TargetTimeout,
-        Min = 3, Max = 30, Rounding = 0, Suffix = "s",
-        Callback = function(v) H.Config.TargetTimeout = v end,
-    })
-
-    BotLeft:AddSlider("EH_SellAt", {
-        Text = "Sell at capacity",
-        Default = H.Config.SellAtPercent,
-        Min = 50, Max = 100, Rounding = 0, Suffix = "%",
-        Callback = function(v) H.Config.SellAtPercent = v end,
-    })
-
-    BotLeft:AddSlider("EH_ResumeAt", {
-        Text = "Resume farm at",
-        Default = H.Config.ResumeAtPercent,
-        Min = 1, Max = 99, Rounding = 0, Suffix = "%",
-        Callback = function(v) H.Config.ResumeAtPercent = v end,
-    })
-
-    BotRight:AddLabel("EH_BotStatus", {Text = "Status: IDLE"})
-    BotRight:AddLabel("EH_Target", {Text = "Target: None"})
-    BotRight:AddLabel("EH_TargetDistance", {Text = "Distance: --"})
-    BotRight:AddLabel("EH_Capacity", {Text = "Capacity: --/--"})
-    BotRight:AddLabel("EH_Trinkets", {Text = "Trinkets: 0"})
-    BotRight:AddLabel("EH_Collected", {Text = "Collected: 0"})
-    BotRight:AddLabel("EH_Session", {Text = "Session: 00:00"})
-    BotRight:AddLabel("EH_Phase", {Text = "Phase: FARM"})
-    BotRight:AddDivider()
-    BotRight:AddButton({Text = "Skip Current Target", Func = function() H.Farm.SkipTarget() end})
-    BotRight:AddButton({Text = "Reset Statistics", Func = function() H.Farm.ResetStats() end})
-
-    ------------------------------------------------------------------------
-    -- SELL
-    ------------------------------------------------------------------------
-    local SellLeft = Tabs.Sell:AddLeftGroupbox("Common -> Epic")
-    local SellRight = Tabs.Sell:AddRightGroupbox("Legendary -> Unknown")
-
-    local function selectedFor(rarity)
-        local value = {}
-        for _, category in ipairs(H.SellCategories) do
-            if H.Sell.GetFilter(rarity, category) then value[category] = true end
-        end
-        return value
-    end
-
-    local function addRarityDropdown(group, rarity)
-        local id = "EH_Sell_" .. rarity
-        group:AddDropdown(id, {
-            Text = string.upper(rarity),
-            Values = H.SellCategories,
-            Multi = true,
-            Searchable = false,
-            MaxVisibleDropdownItems = 9,
-            Callback = function(value)
-                value = type(value) == "table" and value or {}
-                for _, category in ipairs(H.SellCategories) do
-                    H.Sell.SetFilter(rarity, category, value[category] == true)
-                end
-            end,
-        })
-        if Options[id] then Options[id]:SetValue(selectedFor(rarity)) end
-    end
-
-    addRarityDropdown(SellLeft, "Common")
-    addRarityDropdown(SellLeft, "Uncommon")
-    addRarityDropdown(SellLeft, "Rare")
-    addRarityDropdown(SellLeft, "Epic")
-    addRarityDropdown(SellRight, "Legendary")
-    addRarityDropdown(SellRight, "Mythic")
-    addRarityDropdown(SellRight, "Exotic")
-    addRarityDropdown(SellRight, "Unknown")
-
-    local SellerLeft = Tabs.Sell:AddLeftGroupbox("Clement, Merchant")
-    local SellerRight = Tabs.Sell:AddRightGroupbox("Seller Status")
-
-    SellerLeft:AddToggle("EH_AutoSell", {
-        Text = "Auto Sell",
-        Default = H.Config.AutoSell,
-        Callback = function(v) if v then H.Sell.Start() else H.Sell.Stop() end end,
-    })
-
-    SellerLeft:AddButton({Text = "SELL MATCHING NOW", Func = function() H.Sell.SellMatching() end})
-    SellerLeft:AddButton({Text = "Interact With Clement", Func = function() H.Sell.InteractWithClement() end})
-    SellerLeft:AddButton({Text = "Save Clement Position Now", Func = function()
-        local seller = H.Core.FindClement()
-        local part = seller and H.Core.NPCAnchor(seller)
-        if part then H.Core.SaveSellerPosition(part.Position) H.State.SellStatus = "SELLER POS SAVED" end
-    end})
-    SellerLeft:AddButton({Text = "Clear Saved Clement Position", Func = function()
-        H.Core.ClearSavedSeller()
-        H.State.SellStatus = "SELLER POS CLEARED"
-    end})
-    SellerLeft:AddButton({Text = "Clear All Sell Filters", Func = function()
-        H.Sell.ClearFilters()
-        for _, rarity in ipairs(H.SellRarities) do
-            local id = "EH_Sell_" .. rarity
-            if Options[id] then Options[id]:SetValue({}) end
-        end
-    end})
-
-    SellerLeft:AddSlider("EH_SellRange", {
-        Text = "Interact range",
-        Default = H.Config.SellerInteractDistance,
-        Min = 2, Max = 15, Rounding = 1, Suffix = " studs",
-        Callback = function(v) H.Config.SellerInteractDistance = v end,
-    })
-
-    SellerLeft:AddSlider("EH_SellInterval", {
-        Text = "Sell interval",
-        Default = H.Config.SellInterval,
-        Min = 0.2, Max = 3, Rounding = 2, Suffix = "s",
-        Callback = function(v) H.Config.SellInterval = v end,
-    })
-
-    SellerRight:AddLabel("EH_SellStatus", {Text = "Status: IDLE", DoesWrap = true})
-    SellerRight:AddLabel("EH_SellerCache", {Text = "Seller pos: --", DoesWrap = true})
-    SellerRight:AddLabel("EH_SellerStream", {Text = "Clement: --", DoesWrap = true})
-    SellerRight:AddLabel("EH_LastSell", {Text = "Last sell: 0 items / 0 stacks", DoesWrap = true})
-    SellerRight:AddDivider()
-    SellerRight:AddLabel("Each rarity is independent. Open COMMON, RARE, LEGENDARY, etc. and select exactly Weapon, Item, Trinket, Accessory, Potion, Outfit, Tome, Summon and/or Gem.", true)
-
-    ------------------------------------------------------------------------
-    -- MOVEMENT
-    ------------------------------------------------------------------------
     local MoveLeft = Tabs.Movement:AddLeftGroupbox("Movement")
     local MoveRight = Tabs.Movement:AddRightGroupbox("Settings")
 
@@ -436,7 +247,7 @@ return function(H)
         end,
     })
     InterfaceLeft:AddButton({Text = "Hide Interface", Func = function() Library:Toggle(false) end})
-    InterfaceLeft:AddButton({Text = "Unload EndHub", Func = function() H:Unload() end})
+    InterfaceLeft:AddButton({Text = "Close Extras", Func = function() H.CloseExtras() end})
     InterfaceLeft:AddLabel("Drag the title bar to move the UI. Resize from the window edge/corner. This is the same UI library used by Hydroxide.", true)
 
     InterfaceRight:AddLabel("EndHub modular build", true)
@@ -449,58 +260,20 @@ return function(H)
     InterfaceRight:AddLabel("Editable persistent keybinds", true)
     InterfaceRight:AddLabel("UI source: " .. tostring(librarySource), true)
 
-    ------------------------------------------------------------------------
-    -- STATUS LOOP
-    ------------------------------------------------------------------------
     task.spawn(function()
-        local lastPlayerRefresh = 0
         while not H.State.Unloaded and not Library.Unloaded do
             pcall(function()
-                H.Core.ReadCapacity()
-
-                if Options.EH_BotStatus then Options.EH_BotStatus:SetText("Status: " .. tostring(H.State.Status) .. " | Sell: " .. tostring(H.State.SellStatus)) end
-                if Options.EH_Target then Options.EH_Target:SetText("Target: " .. (H.State.CurrentTarget and H.State.CurrentTarget.Name or "None")) end
-                if Options.EH_TargetDistance then Options.EH_TargetDistance:SetText(H.State.CurrentTarget and ("Distance: " .. math.floor(H.State.TargetDistance or 0) .. " studs") or "Distance: --") end
-                if Options.EH_Capacity then Options.EH_Capacity:SetText("Capacity: " .. tostring(H.State.InventoryCurrent) .. "/" .. tostring(H.State.InventoryMax)) end
-                if Options.EH_Trinkets then Options.EH_Trinkets:SetText("Trinkets: " .. tostring(H.State.Detected)) end
-                if Options.EH_Collected then Options.EH_Collected:SetText("Collected: " .. tostring(H.State.Collected)) end
-                if Options.EH_Phase then Options.EH_Phase:SetText("Phase: " .. tostring(H.State.FarmSellPhase)) end
-
-                local elapsed = H.Farm.SessionSeconds()
-                local mins, secs = math.floor(elapsed / 60), math.floor(elapsed % 60)
-                if Options.EH_Session then Options.EH_Session:SetText(string.format("Session: %02d:%02d", mins, secs)) end
-
-                local saved = H.Core.GetSavedSeller()
-                if Options.EH_SellerCache then
-                    Options.EH_SellerCache:SetText(saved and string.format("Seller pos: %.0f, %.0f, %.0f", saved.X, saved.Y, saved.Z) or "Seller pos: VISIT CLEMENT ONCE")
-                end
-                if Options.EH_SellStatus then Options.EH_SellStatus:SetText("Status: " .. tostring(H.State.SellStatus)) end
-                if Options.EH_SellerStream then
-                    local seller = H.Core.FindClement()
-                    Options.EH_SellerStream:SetText(seller and "Clement: STREAMED / READY" or (saved and "Clement: OUT OF STREAMING | SAVED POS READY" or "Clement: NOT FOUND / NO SAVED POS"))
-                end
-                if Options.EH_LastSell then
-                    Options.EH_LastSell:SetText("Last sell: " .. tostring(H.Sell.Runtime.LastSold or 0) .. " items / " .. tostring(H.Sell.Runtime.LastStacks or 0) .. " stacks")
-                end
-
                 local info = H.PlayerTools.Info()
-                if Options.EH_PlayerName then Options.EH_PlayerName:SetText("Name: " .. tostring(info.Name)) end
-                if Options.EH_PlayerRank then Options.EH_PlayerRank:SetText("Rank: " .. tostring(info.Rank)) end
-                if Options.EH_PlayerDistance then Options.EH_PlayerDistance:SetText(info.Distance and info.Distance ~= math.huge and ("Distance: " .. math.floor(info.Distance) .. "m") or "Distance: --") end
-                if Options.EH_PlayerHealth then Options.EH_PlayerHealth:SetText(info.Health and ("HP: " .. math.floor(info.Health)) or "HP: --") end
-                if Options.EH_PlayerEquipped then Options.EH_PlayerEquipped:SetText("Equipped: " .. tostring(info.Equipped)) end
-                if Options.EH_SpectateStatus then Options.EH_SpectateStatus:SetText("Spectating: " .. (H.PlayerTools.Spectating and "ON" or "OFF")) end
-
-                if tick() - lastPlayerRefresh >= 2 then
-                    lastPlayerRefresh = tick()
-                    local names = H.PlayerTools.Names()
-                    if #names == 0 then names = {"None"} end
-                    if Options.EH_PlayerSelect and Options.EH_PlayerSelect.SetValues then Options.EH_PlayerSelect:SetValues(names) end
+                for id, text in pairs({EH_PlayerName = "Name: " .. tostring(info.Name),
+                    EH_PlayerRank = "Rank: " .. tostring(info.Rank),
+                    EH_PlayerDistance = "Distance: " .. tostring(info.Distance),
+                    EH_PlayerHealth = "HP: " .. tostring(info.Health),
+                    EH_PlayerEquipped = "Equipped: " .. tostring(info.Equipped),
+                    EH_SpectateStatus = "Spectating: " .. tostring(H.PlayerTools.Spectating)}) do
+                    if Options[id] then Options[id]:SetText(text) end
                 end
             end)
-            task.wait(0.35)
+            task.wait(1)
         end
     end)
-
-    print("[EndHub] complete Hydroxide UI loaded")
 end

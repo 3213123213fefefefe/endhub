@@ -143,11 +143,25 @@ return function(H)
     Right:AddLabel("The bot keeps you at the selected distance and depth relative to the target, faces the target and aims the camera at it. If shots hit the map from too deep underground, reduce Underground depth.", true)
     Right:AddLabel("Weapon firing uses the equipped Tool / normal mouse activation path. Select your ranged weapon in the dropdown or leave Use Equipped.", true)
 
-    Status:AddLabel("EH_BossStatus", {Text = "Status: IDLE", DoesWrap = true})
-    Status:AddLabel("EH_BossTargetStatus", {Text = "Target: None", DoesWrap = true})
-    Status:AddLabel("EH_BossHP", {Text = "HP: --/--", DoesWrap = true})
-    Status:AddLabel("EH_BossWeaponStatus", {Text = "Weapon: None", DoesWrap = true})
-    Status:AddLabel("EH_BossDistanceStatus", {Text = "Distance: --", DoesWrap = true})
+    local statusLabels = {}
+    local function addStatus(id, text)
+        statusLabels[id] = Status:AddLabel(id, {Text = text, DoesWrap = true})
+    end
+    addStatus("EH_BossStatus", "Status: IDLE")
+    addStatus("EH_BossSelectedStatus", "Selected: None")
+    addStatus("EH_BossTargetStatus", "Detected target: None")
+    addStatus("EH_BossHP", "HP: --")
+    addStatus("EH_BossDistanceStatus", "Current distance: --")
+    addStatus("EH_BossDetectionStatus", "Detection radius: --")
+    addStatus("EH_BossPositionStatus", "Desired distance / depth: --")
+    addStatus("EH_BossWeaponStatus", "Equipped: None")
+    addStatus("EH_BossWeaponSelected", "Selected weapon: --")
+    addStatus("EH_BossFireStatus", "Auto shoot: OFF")
+    local function setStatus(id, text)
+        local label = statusLabels[id]
+        if not label or type(label.SetText) ~= "function" then label = Options[id] end
+        if label and type(label.SetText) == "function" then label:SetText(text) end
+    end
 
     -- Editable boss keybind in the normal Keybinds page.
     local keyGroup = H.UI.KeyLeft or H.UI.KeyRight
@@ -178,20 +192,50 @@ return function(H)
     end
 
     task.spawn(function()
+        local reported = false
         while not H.State.Unloaded do
-            pcall(function()
-                if Options.EH_BossStatus then Options.EH_BossStatus:SetText("Status: " .. tostring(H.State.BossStatus or "IDLE")) end
-                if Options.EH_BossTargetStatus then Options.EH_BossTargetStatus:SetText("Target: " .. tostring(H.State.BossTarget or "None")) end
-                if Options.EH_BossHP then Options.EH_BossHP:SetText("HP: " .. tostring(H.State.BossHP or "--/--")) end
-                if Options.EH_BossWeaponStatus then Options.EH_BossWeaponStatus:SetText("Weapon: " .. tostring(H.State.BossWeapon or "None")) end
-                if Options.EH_BossDistanceStatus then
-                    local d = tonumber(H.State.BossDistance)
-                    Options.EH_BossDistanceStatus:SetText(d and string.format("Distance: %.1f", d) or "Distance: --")
+            local ok, err = pcall(function()
+                local enabled = H.Config.BossBotEnabled == true
+                local target = enabled and B.Runtime.Target or nil
+                local hum = target and target.Parent and target:FindFirstChildWhichIsA("Humanoid")
+                local root = H.Core.Root()
+                local part = hum and H.Core.NPCAnchor(target)
+                local valid = hum and hum.Health > 0 and part
+                local wanted = tostring(H.Config.BossTargetName or "None")
+                local selectedName = wanted:match("^(.-) | ") or wanted
+                local selected = wanted ~= "SELECT A BOSS / NPC" and wanted ~= "AUTO: Highest MaxHealth" and wanted ~= "None"
+                local status
+                if not enabled then status = selected and "STOPPED" or "SELECT A TARGET"
+                elseif not root then status = "WAITING FOR CHARACTER"
+                elseif not valid then status = "WAITING: TARGET NOT FOUND IN DETECTION RADIUS"
+                else status = tostring(H.State.BossStatus or "READY") end
+                setStatus("EH_BossStatus", "Status: " .. status)
+                setStatus("EH_BossSelectedStatus", "Selected: " .. (selected and selectedName or "None"))
+                setStatus("EH_BossTargetStatus", "Detected target: " .. (valid and target.Name or "None"))
+                local hp = "--"
+                if valid then
+                    local max = math.max(0, hum.MaxHealth)
+                    local percent = max > 0 and math.clamp(hum.Health / max * 100, 0, 100) or 0
+                    hp = string.format("%.0f / %.0f (%.1f%%)", math.max(0, hum.Health), max, percent)
                 end
+                setStatus("EH_BossHP", "HP: " .. hp)
+                local distance = valid and root and (root.Position - part.Position).Magnitude
+                setStatus("EH_BossDistanceStatus", "Current distance: " .. (distance and string.format("%.1f studs", distance) or "--"))
+                setStatus("EH_BossDetectionStatus", "Detection radius: " .. tostring(H.Config.BossDetectionRange or 500) .. " studs")
+                setStatus("EH_BossPositionStatus", string.format("Desired distance: %.0f | Depth: %.0f studs", H.Config.BossDistance or 55, H.Config.BossDepth or 0))
+                local character = H.Core.Character()
+                local equipped = character and character:FindFirstChildWhichIsA("Tool")
+                setStatus("EH_BossWeaponStatus", "Equipped: " .. (equipped and equipped.Name or "None"))
+                setStatus("EH_BossWeaponSelected", "Selected weapon: " .. tostring(H.Config.BossWeaponName or "Use Equipped"))
+                setStatus("EH_BossFireStatus", "Auto shoot: " .. (H.Config.BossAutoShoot and "ON" or "OFF")
+                    .. string.format(" | Interval: %.2fs", H.Config.BossShotInterval or 0.45))
             end)
+            if not ok and not reported then warn("[EndHub Boss UI] " .. tostring(err)) end
+            reported = not ok
             task.wait(0.2)
         end
     end)
 
     print("[EndHub] boss UI loaded")
 end
+

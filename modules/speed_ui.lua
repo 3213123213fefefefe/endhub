@@ -15,3 +15,4 @@ return function(H)
 
     group:AddLabel("The multiplier value can stay saved, but it will not activate automatically when EndHub loads.", true)
 end
+

@@ -66,7 +66,7 @@ return function(H)
             Text = label,
             NoUI = false,
             Callback = function(value)
-                if H.State.Unloaded or value == false then return end
+                if H.State.Unloaded or value == false or not H.Core.InputFocused() then return end
                 task.spawn(callback)
             end,
             ChangedCallback = function(newKey)
@@ -198,3 +198,4 @@ return function(H)
     saveAll()
     print("[EndHub] all keybinds loaded")
 end
+

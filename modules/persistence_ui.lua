@@ -6,10 +6,10 @@ return function(H)
 
     local g = Tabs.Interface:AddRightGroupbox("PC Save / Persistence")
     g:AddLabel("EH_SaveStatus", {Text = "Save: " .. tostring(H.State.PersistenceStatus or "--"), DoesWrap = true})
-    g:AddLabel("Config: EndHub/config.json", true)
-    g:AddLabel("Keybinds: EndHub/keybinds.json", true)
-    g:AddLabel("Seller: EndHub/seller_positions.json", true)
-    g:AddLabel("Bot positions: EndHub/bot_positions.json", true)
+    g:AddLabel("ConfigFile: " .. H.Persistence.ConfigFile, true)
+    g:AddLabel("KeybindFile: " .. H.Persistence.KeybindFile, true)
+    g:AddLabel("SellerFile: " .. H.Persistence.SellerFile, true)
+    g:AddLabel("PositionsFile: " .. H.Persistence.PositionsFile, true)
     g:AddButton({Text = "SAVE EVERYTHING NOW", Func = function()
         P.SaveAll(true)
     end})
@@ -29,7 +29,7 @@ return function(H)
             H.State.PersistenceStatus = "NO FARM START SAVED"
         end
     end})
-    g:AddLabel("Settings are autosaved when they change. Active automation states such as Auto Sell/Fly are not restored ON automatically after reopening, so the script never starts moving or selling by itself.", true)
+    g:AddLabel("Settings are autosaved when they change. Active automation states such as Auto Sell/Fly are not restored ON automatically after reopening, while the main farm cycle resumes automatically after menu and player checks.", true)
 
     task.spawn(function()
         while not H.State.Unloaded do
@@ -42,3 +42,4 @@ return function(H)
         end
     end)
 end
+
