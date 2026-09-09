@@ -2,7 +2,7 @@
 -- job before the first yield, and reuse the live instance on repeated execution.
 local bootEnv = getgenv()
 local bootJob = tostring(game.JobId)
-local buildVersion = "menu-server-5"
+local buildVersion = "menu-server-6"
 local existingBoot = bootEnv.ENDHUB_BOOT
 if existingBoot and existingBoot.JobId == bootJob and existingBoot.Loading then
     return existingBoot.Hub or bootEnv.ENDHUB
@@ -2295,7 +2295,9 @@ local ok, result = pcall(function()
     assert(bossDetection, bossError)
     bossDetection()(hub)
     -- Install last so route/sell overrides cannot bypass the player checks.
-    local cycleSource = game:HttpGet(hub.Repo .. 'modules/server_cycle.lua?v=' .. tostring(os.time()))
+    local cycleURL = 'https://raw.githubusercontent.com/3213123213fefefefe/endhub/5df838a6867f4fa2f84a17e73767269746e364a8/modules/server_cycle.lua'
+    local cycleSource = game:HttpGet(cycleURL)
+    loggedPrint('[EndHub Loader] server module pinned=5df838a | direct events only')
     local cycle, cycleError = wrappedCompile(cycleSource, 'EndHub server cycle')
     assert(cycle, cycleError)
     cycle()(hub)

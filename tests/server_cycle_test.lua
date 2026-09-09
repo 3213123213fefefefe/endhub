@@ -469,7 +469,13 @@ test("actual Work entrypoint deduplicates concurrent and repeated execution and 
     t.loaded = false
     appendfile, writefile, isfile = function() end, function() end, function() return true end
     getfenv, setfenv = function() return _G end, function() end
-    game.HttpGet = function(_, url) return url:find("server_cycle.lua", 1, true) and "CYCLE" or "BASE" end
+    game.HttpGet = function(_, url)
+        if url:find("server_cycle.lua", 1, true) then
+            assert(url:find("/5df838a6867f4fa2f84a17e73767269746e364a8/", 1, true), "cycle module must be pinned")
+            return "CYCLE"
+        end
+        return "BASE"
+    end
     local failExtension = false
     loadstring = function(source, chunk)
         if source == "BASE" then return function()
