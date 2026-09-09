@@ -1,7 +1,7 @@
 -- One owner per Roblox client. AutoExecute + teleport queue share this guard;
 -- separate Roblox processes never depend on each other's files or input.
 local ENV = getgenv()
-local JOB, VERSION = tostring(game.JobId), "multi-client-3"
+local JOB, VERSION = tostring(game.JobId), "multi-client-4"
 local boot = ENV.ENDHUB_BOOT
 if boot and boot.JobId == JOB and boot.Loading then
     while boot.Loading and ENV.ENDHUB_BOOT == boot do task.wait(0.1) end
@@ -25,9 +25,11 @@ local ok, result = pcall(function()
         return fn()
     end
     local hub = fetch("EndHub.lua")
-    -- Performance wrappers first; the cycle's menu/death/player gate stays outermost.
+    -- Performance wrappers first; cycle creates ServerCycle, then autoload replaces
+    -- only QueueBootstrap before menu/hop patches use it.
     for _, path in ipairs({"modules/fps_patch.lua", "modules/server_cycle.lua",
-        "modules/menu_first_screen_patch.lua", "modules/server_hop_quality_patch.lua"}) do
+        "modules/autoload_patch.lua", "modules/menu_first_screen_patch.lua",
+        "modules/server_hop_quality_patch.lua"}) do
         fetch(path)(hub)
     end
     assert(hub.ServerCycle and hub.ServerCycle.MenuStep, "[EndHub] cycle missing")
