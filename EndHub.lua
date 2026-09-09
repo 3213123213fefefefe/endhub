@@ -125,6 +125,7 @@ local order = {
     "modules/farm.lua",
     "modules/sell.lua",
     "modules/ui.lua",
+    "modules/menu_key_fix.lua",
     "modules/farm_ui.lua",
     "modules/ui_compat.lua",
     "modules/trinket_sell_fix.lua",
