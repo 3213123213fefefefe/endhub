@@ -433,7 +433,7 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
         clicks = clicks + 1
         if event == play.MouseButton1Click then play.Visible = false slots.Visible = true
         elseif event == enter.MouseButton1Click then slots.Visible = false current.Visible = true
-        elseif event == current.MouseButton1Click then screen.Enabled = false
+        elseif event == current.Activated then screen.Enabled = false
         else error("clicked an unrelated button") end
     end
     t.R.Bootstrap(); t.advance(1); equal(t.starts, 0)
@@ -442,6 +442,13 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     screen.Enabled = true; play.Visible = true
     t.advance(0.5); equal(t.H.State.Running, false)
     equal(t.R.MenuEntered, false)
+    play.Visible, slots.Visible, current.Visible = false, false, true
+    local sent = 0
+    firesignal = function() sent = sent + 1 end
+    t.R.ServerEventsTried = {}
+    t.advance(15)
+    equal(sent, 3); assert(t.R.ServerEventsExhausted)
+    equal(t.H.State.Running, false)
     getconnections, firesignal = nil, nil
 end)
 

@@ -411,6 +411,10 @@ fn()
             end
         end
         if not target then status("WAIT MENU BUTTON / SLOT 1 / CURRENT SERVER") return true end
+        if target == current and R.ServerEventsExhausted then
+            status("SERVER ENTRY PAUSED | USE RETRY CHECK / HOP")
+            return true
+        end
         if tick() - (R.LastMenuClick or -math.huge) < 2 then return true end
         R.LastMenuClick = tick()
         local retrySameTarget = R.LastMenuTarget == target
@@ -420,14 +424,19 @@ fn()
                 assert(target:IsA("GuiButton"), "current server has no resolved ImageButton")
                 assert(type(getconnections) == "function" and type(firesignal) == "function",
                     "direct server activation unavailable; coordinate clicks disabled")
+                R.ServerEventsTried = R.ServerEventsTried or {}
                 local selected, counts = nil, {}
-                for _, name in ipairs({"MouseButton1Click", "Activated", "MouseButton1Down"}) do
+                for _, name in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down"}) do
                     local count = #getconnections(target[name])
                     counts[#counts + 1] = name .. "=" .. count
-                    if count > 0 and not selected then selected = name end
+                    if count > 0 and not R.ServerEventsTried[name] and not selected then selected = name end
                 end
                 print("[EndHub Menu] server events | " .. table.concat(counts, " | "))
-                assert(selected, "no connected server click event; coordinate clicks disabled")
+                if not selected then
+                    R.ServerEventsExhausted = true
+                    error("no untried server event; entry paused, coordinate clicks disabled")
+                end
+                R.ServerEventsTried[selected] = true
                 print("[EndHub Menu] direct server event=" .. selected)
                 if selected == "Activated" then firesignal(target.Activated, nil, 1)
                 elseif selected == "MouseButton1Down" then
@@ -535,6 +544,7 @@ fn()
         R.Checks, R.Checking, R.Failed, R.Hopping = {}, true, false, false
         R.HopOwned = false
         R.StartedAt = tick()
+        R.ServerEventsTried, R.ServerEventsExhausted = {}, false
         stopWork()
         intent(true)
         persist()
