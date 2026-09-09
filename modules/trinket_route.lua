@@ -5,6 +5,7 @@ return function(H)
     cfg.TrinketRoutes = type(cfg.TrinketRoutes) == 'table' and cfg.TrinketRoutes or {}
     cfg.TrinketRoutes[mapKey] = type(cfg.TrinketRoutes[mapKey]) == 'table' and cfg.TrinketRoutes[mapKey] or {}
     cfg.TrinketRouteWait = math.clamp(tonumber(cfg.TrinketRouteWait) or 1, 1, 10)
+    cfg.TrinketRouteLootRadius = math.clamp(tonumber(cfg.TrinketRouteLootRadius) or 140, 40, 300)
     local route = cfg.TrinketRoutes[mapKey]
     local index, waitUntil, selected = 0, 0, nil
     local waiting, streaming = false, false
@@ -96,6 +97,21 @@ return function(H)
         return previousStart()
     end
 
+    local function targetIsLocal(root, target)
+        if not root or not F.Allowed(target) then return false end
+        local part = C.DropPart(target)
+        return part and (root.Position - part.Position).Magnitude <= cfg.TrinketRouteLootRadius
+    end
+
+    local function nearestLocal(root)
+        local target = F.Nearest()
+        if not target then return nil end
+        local part = C.DropPart(target)
+        if not part then return nil end
+        if (root.Position - part.Position).Magnitude <= cfg.TrinketRouteLootRadius then return target end
+        return nil
+    end
+
     local previousStep = F.Step
     function F.Step(dt)
         if H.State.Unloaded or H.State.Ready == false or not H.State.Running or cfg.AutoSell
@@ -113,7 +129,19 @@ return function(H)
             end
             waiting = false
         end
-        if F.Allowed(H.State.CurrentTarget) or F.Nearest() then return previousStep(dt) end
+
+        -- A streamed drop on the other side of the map used to make F.Nearest()
+        -- return truthy forever, which prevented the route index from advancing.
+        -- While following a saved route, only let loot near the current character
+        -- position interrupt the path. Distant/stale streamed drops are ignored
+        -- until the route reaches their area naturally.
+        local current = H.State.CurrentTarget
+        if current and not targetIsLocal(root, current) then
+            F.ClearTarget()
+            current = nil
+        end
+        if current or nearestLocal(root) then return previousStep(dt) end
+
         if index == #route and H.ServerCycle and H.ServerCycle.OnLootComplete() then return end
         F.ClearTarget()
         index = index % #route + 1
@@ -124,7 +152,7 @@ return function(H)
         waiting = true
         waitUntil = tick() + cfg.TrinketRouteWait
         H.State.Status = 'ROUTE POINT ' .. index .. '/' .. #route
-        print('[EndHub Route] point=' .. index .. '/' .. #route .. ' | wait=' .. cfg.TrinketRouteWait .. ' | position=' .. tostring(destination))
+        print('[EndHub Route] point=' .. index .. '/' .. #route .. ' | wait=' .. cfg.TrinketRouteWait .. ' | radius=' .. cfg.TrinketRouteLootRadius .. ' | position=' .. tostring(destination))
         if not streaming then
             streaming = true
             task.spawn(function()
@@ -133,5 +161,5 @@ return function(H)
             end)
         end
     end
-    print('[EndHub] saved trinket route loaded | points=' .. #route .. ' | wait=' .. cfg.TrinketRouteWait)
+    print('[EndHub] saved trinket route loaded | points=' .. #route .. ' | wait=' .. cfg.TrinketRouteWait .. ' | local loot radius=' .. cfg.TrinketRouteLootRadius)
 end
