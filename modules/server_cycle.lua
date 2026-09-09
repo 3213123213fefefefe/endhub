@@ -346,7 +346,7 @@ fn()
                     if text:match("^slot%s*1$") then slotOne, slotLabel = obj.Parent, obj end
                 elseif text:find("current server", 1, true) or text:find("servidor atual", 1, true) then
                     sawMenu = true
-                    current = buttonFor(obj)
+                    current = buttonFor(obj) or obj -- Clickable server rows may be Frames/TextLabels.
                 elseif text == "menu do servidor" or text == "server menu" or text == "the veil" then
                     sawMenu = true
                 end
@@ -395,15 +395,24 @@ fn()
         if not target then status("WAIT MENU BUTTON / SLOT 1 / CURRENT SERVER") return true end
         if tick() - (R.LastMenuClick or -math.huge) < 2 then return true end
         R.LastMenuClick = tick()
+        local retrySameTarget = R.LastMenuTarget == target
+        R.LastMenuTarget = target
         local ok, err = pcall(function()
             -- Use one connected signal, never all of them (which can enter twice).
-            if type(getconnections) == "function" and type(firesignal) == "function" then
+            if target:IsA("GuiButton") and not retrySameTarget
+                and type(getconnections) == "function" and type(firesignal) == "function" then
                 for _, event in ipairs({target.MouseButton1Click, target.Activated, target.MouseButton1Down}) do
                     if #getconnections(event) > 0 then firesignal(event) return end
                 end
             end
             local position, size = target.AbsolutePosition, target.AbsoluteSize
             local x, y = position.X + size.X / 2, position.Y + size.Y / 2
+            local screen = target.Parent
+            while screen and screen ~= pg and not screen:IsA("ScreenGui") do screen = screen.Parent end
+            if screen and screen:IsA("ScreenGui") and not screen.IgnoreGuiInset then
+                local inset = game:GetService("GuiService"):GetGuiInset()
+                x, y = x + inset.X, y + inset.Y
+            end
             local input = game:GetService("VirtualInputManager")
             input:SendMouseButtonEvent(x, y, 0, true, game, 0)
             input:SendMouseButtonEvent(x, y, 0, false, game, 0)

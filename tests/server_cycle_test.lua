@@ -407,7 +407,17 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     local delete = node("TextButton", "Deletar", one)
     local two = node("Frame", nil, slots)
     node("TextLabel", "Slot 2", two); node("TextButton", "Endure", two)
-    local current = node("TextButton", "Noble Dorman (Current Server)", screen); current.Visible = false
+    local current = node("TextLabel", "Noble Dorman (Current Server)", screen); current.Visible = false
+    current.AbsolutePosition, current.AbsoluteSize = {X = 500, Y = 400}, {X = 300, Y = 30}
+    local oldGetService = game.GetService
+    game.GetService = function(self, name)
+        if name == "GuiService" then return {GetGuiInset = function() return {X = 0, Y = 36} end} end
+        if name == "VirtualInputManager" then return {SendMouseButtonEvent = function(_, x, y, _, down)
+            equal(x, 650); equal(y, 451)
+            if not down then screen.Enabled = false end
+        end} end
+        return oldGetService(self, name)
+    end
     t.player.FindFirstChild = function(_, name) if name == "PlayerGui" then return pg end end
     local clicks = 0
     getconnections = function() return {true} end
@@ -420,7 +430,7 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     end
     t.R.Bootstrap(); t.advance(1); equal(t.starts, 0)
     t.advance(2); equal(t.starts, 0)
-    t.advance(5); equal(clicks, 3); equal(t.starts, 1); assert(t.R.MenuEntered)
+    t.advance(5); equal(clicks, 2); equal(t.starts, 1); assert(t.R.MenuEntered)
     screen.Enabled = true; play.Visible = true
     t.advance(0.5); equal(t.H.State.Running, false)
     equal(t.R.MenuEntered, false)
