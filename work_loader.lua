@@ -1,7 +1,7 @@
 -- One owner per Roblox client. AutoExecute + teleport queue share this guard;
 -- separate Roblox processes never depend on each other's files or input.
 local ENV = getgenv()
-local JOB, VERSION = tostring(game.JobId), "multi-client-6"
+local JOB, VERSION = tostring(game.JobId), "multi-client-7"
 local boot = ENV.ENDHUB_BOOT
 if boot and boot.JobId == JOB and boot.Loading then
     while boot.Loading and ENV.ENDHUB_BOOT == boot do task.wait(0.1) end
@@ -25,10 +25,10 @@ local ok, result = pcall(function()
         return fn()
     end
     local hub = fetch("EndHub.lua")
-    -- Performance wrappers first; cycle creates ServerCycle, then autoload replaces
-    -- only QueueBootstrap before menu/hop patches use it.
+    -- Keep the working server/farm improvements, but restore only the old
+    -- Potassium teleport queue behavior that worked before multi-client-2.
     for _, path in ipairs({"modules/fps_patch.lua", "modules/server_cycle.lua",
-        "modules/autoload_patch.lua", "modules/menu_first_screen_patch.lua",
+        "modules/legacy_autoload_patch.lua", "modules/menu_first_screen_patch.lua",
         "modules/server_hop_quality_patch.lua"}) do
         fetch(path)(hub)
     end
