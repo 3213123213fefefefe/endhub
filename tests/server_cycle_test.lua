@@ -176,6 +176,7 @@ local function context(options)
     t.H, t.env, t.players, t.player, t.groups, t.service = H, env, players, player, groups, teleports
     t.R = assert(load(cycleSource))()(H)
     t.R.MenuEntered = true
+    t.R.MenuClearSince = -10
     t.R.ReadyCharacter, t.R.CharacterReadyAt = player.Character, -1
     return t
 end
@@ -367,7 +368,7 @@ test("AutoExecute-only executors and external teleport failures remain manageabl
     t.R.Retry(); t.advance(1); equal(t.starts, 2)
 end)
 
-test("menu enters Play, existing Slot 1 and current server before starting loot", function()
+test("menu enters Endure, existing Slot 1 and current server before starting loot", function()
     local t = context()
     t.R.MenuEntered = false
     local function node(kind, text, parent)
@@ -395,14 +396,14 @@ test("menu enters Play, existing Slot 1 and current server before starting loot"
     end
     local pg = node("PlayerGui")
     local screen = node("ScreenGui", nil, pg)
-    local play = node("TextButton", "Resistir", screen)
+    local play = node("TextButton", "Endure", screen)
     local slots = node("Frame", nil, screen); slots.Visible = false
     local one = node("Frame", nil, slots)
     node("TextLabel", "Slot 1", one)
-    local enter = node("TextButton", "Resistir", one)
+    local enter = node("TextButton", "Endure", one)
     local delete = node("TextButton", "Deletar", one)
     local two = node("Frame", nil, slots)
-    node("TextLabel", "Slot 2", two); node("TextButton", "Resistir", two)
+    node("TextLabel", "Slot 2", two); node("TextButton", "Endure", two)
     local current = node("TextButton", "Noble Dorman (Current Server)", screen); current.Visible = false
     t.player.FindFirstChild = function(_, name) if name == "PlayerGui" then return pg end end
     local clicks = 0
@@ -417,6 +418,9 @@ test("menu enters Play, existing Slot 1 and current server before starting loot"
     t.R.Bootstrap(); t.advance(1); equal(t.starts, 0)
     t.advance(2); equal(t.starts, 0)
     t.advance(5); equal(clicks, 3); equal(t.starts, 1); assert(t.R.MenuEntered)
+    screen.Enabled = true; play.Visible = true
+    t.advance(0.5); equal(t.H.State.Running, false)
+    equal(t.R.MenuEntered, false)
     getconnections, firesignal = nil, nil
 end)
 

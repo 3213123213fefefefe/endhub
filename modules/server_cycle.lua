@@ -299,7 +299,6 @@ fn()
     -- Menu flow observed in the game: Resistir / Play -> Slot 1 -> Current Server.
     -- Only inspect visible game UI; never select a new/delete/purchase slot button.
     function R.MenuStep()
-        if R.MenuEntered then return false end
         local pg = Player:FindFirstChild("PlayerGui")
         if not pg then status("WAIT PLAYER GUI") return true end
         local function visible(obj)
@@ -338,7 +337,7 @@ fn()
         for _, obj in ipairs(pg:GetDescendants()) do
             if visible(obj) then
                 local text = label(obj)
-                if text == "play" or text == "resist" or text == "resistir" or text == "jogar" then
+                if text == "endure" or text == "play" or text == "resist" or text == "resistir" or text == "jogar" then
                     sawMenu = true
                     local button = buttonFor(obj)
                     if button then play[#play + 1] = button end
@@ -366,6 +365,7 @@ fn()
             print("[EndHub Menu] menu closed and character ready")
             return false
         end
+        R.MenuEntered = false
         R.MenuClearSince = nil
         local target = current
         if not target then
@@ -565,6 +565,7 @@ fn()
         while not R.Closed and not H.State.Unloaded do
             if alive() and not R.Hopping then
                 if not R.CharacterReady() then R.PauseForCharacter() end
+                if R.Allowed and R.MenuStep() then stopWork(true) end
                 tryResume()
                 -- Automatic loot hops are decided only at the end of a complete route.
             end
