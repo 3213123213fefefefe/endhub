@@ -87,7 +87,7 @@ local function context(options)
     local player = t:add(1)
     player.Character = {}
     t.humanoid = {Health = 100}
-    local emptyGui = {GetDescendants = function() return {} end}
+    local emptyGui = {GetDescendants = function() return {} end, FindFirstChild = function() end}
     player.FindFirstChild = function(_, name) if name == "PlayerGui" then return emptyGui end end
     players.LocalPlayer = player
     for _, id in ipairs(options.ids or {}) do t:add(id) end
@@ -373,9 +373,12 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     t.R.MenuEntered = false
     local function node(kind, text, parent)
         local n = {Text = text or "", Name = text or kind, Parent = parent, Visible = true, Enabled = true, children = {}}
-        function n:IsA(k) return k == kind or (k == "GuiButton" and kind == "TextButton")
+        function n:IsA(k) return k == kind or (k == "GuiButton" and (kind == "TextButton" or kind == "ImageButton"))
             or (k == "GuiObject" and kind ~= "PlayerGui" and kind ~= "ScreenGui") end
         function n:GetChildren() return self.children end
+        function n:FindFirstChild(name)
+            for _, child in ipairs(self.children) do if child.Name == name then return child end end
+        end
         function n:GetDescendants()
             local out = {}
             for _, child in ipairs(self.children) do
@@ -407,7 +410,13 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     local delete = node("TextButton", "Deletar", one)
     local two = node("Frame", nil, slots)
     node("TextLabel", "Slot 2", two); node("TextButton", "Endure", two)
-    local current = node("TextLabel", "Noble Dorman (Current Server)", screen); current.Visible = false
+    screen.Name = "ServerMenuGui"
+    local outer = node("Frame", nil, screen); outer.Name = "Frame"
+    local main = node("Frame", nil, outer); main.Name = "MainFrame"
+    local list = node("ScrollingFrame", nil, main); list.Name = "ScrollingFrame"
+    local current = node("ImageButton", nil, list); current.Name = "ServerMenuTemplate"; current.Visible = false
+    local rowFrame = node("Frame", nil, current); rowFrame.Name = "Frame"
+    local caption = node("TextLabel", "Noble Dorman (Current Server)", rowFrame); caption.Name = "ServerName"
     current.AbsolutePosition, current.AbsoluteSize = {X = 500, Y = 400}, {X = 300, Y = 30}
     local oldGetService = game.GetService
     game.GetService = function(self, name)
@@ -474,7 +483,7 @@ test("actual Work entrypoint deduplicates concurrent and repeated execution and 
             order[#order + 1] = chunk
             if failExtension then error("test extension failure") end
             if source == "CYCLE" then
-                H.ServerCycle = {Bootstrap = function() assert(H.State.Ready) bootstraps = bootstraps + 1 end}
+                H.ServerCycle = {MenuStep = function() end, Bootstrap = function() assert(H.State.Ready) bootstraps = bootstraps + 1 end}
             end
         end end
     end
@@ -488,6 +497,8 @@ test("actual Work entrypoint deduplicates concurrent and repeated execution and 
     equal(ok, false); equal(t.env.ENDHUB_BOOT, nil); equal(t.env.ENDHUB_WORK_LOADING, nil)
     equal(t.env.ENDHUB, nil); assert(t.H.State.Unloaded)
     failExtension = false; compileWork(); equal(bootstraps, 2)
+    t.H.ServerCycle = nil -- A ready UI without its controller must be rebuilt.
+    compileWork(); equal(bootstraps, 3); assert(t.H.ServerCycle)
 end)
 
 test("direct EndHub entrypoint integrates the cycle, while Work defers it until after extensions", function()

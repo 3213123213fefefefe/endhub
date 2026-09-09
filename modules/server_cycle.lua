@@ -334,6 +334,24 @@ fn()
         end
         local play, current, slotOne, slotLabel = {}, nil, nil, nil
         local sawMenu, sawSlots = false, false
+        -- Exact hierarchy confirmed by the user's live GUI diagnostic.
+        local serverGui = pg:FindFirstChild("ServerMenuGui")
+        local outer = serverGui and serverGui:FindFirstChild("Frame")
+        local main = outer and outer:FindFirstChild("MainFrame")
+        local list = main and main:FindFirstChild("ScrollingFrame")
+        if list and visible(list) then
+            sawMenu = true
+            for _, row in ipairs(list:GetChildren()) do
+                local frame = row:FindFirstChild("Frame")
+                local name = frame and frame:FindFirstChild("ServerName")
+                local text = name and label(name) or ""
+                if row:IsA("ImageButton") and visible(row)
+                    and (text:find("current server", 1, true) or text:find("servidor atual", 1, true)) then
+                    current = row
+                    break
+                end
+            end
+        end
         for _, obj in ipairs(pg:GetDescendants()) do
             if visible(obj) then
                 local text = label(obj)
@@ -346,7 +364,7 @@ fn()
                     if text:match("^slot%s*1$") then slotOne, slotLabel = obj.Parent, obj end
                 elseif text:find("current server", 1, true) or text:find("servidor atual", 1, true) then
                     sawMenu = true
-                    current = buttonFor(obj) or obj -- Clickable server rows may be Frames/TextLabels.
+                    current = current or buttonFor(obj) or obj -- Clickable server rows may be Frames/TextLabels.
                 elseif text == "menu do servidor" or text == "server menu" or text == "the veil" then
                     sawMenu = true
                 end
@@ -399,7 +417,7 @@ fn()
         R.LastMenuTarget = target
         local ok, err = pcall(function()
             -- Use one connected signal, never all of them (which can enter twice).
-            if target:IsA("GuiButton") and not retrySameTarget
+            if target ~= current and target:IsA("GuiButton") and not retrySameTarget
                 and type(getconnections) == "function" and type(firesignal) == "function" then
                 for _, event in ipairs({target.MouseButton1Click, target.Activated, target.MouseButton1Down}) do
                     if #getconnections(event) > 0 then firesignal(event) return end

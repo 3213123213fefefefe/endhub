@@ -2,14 +2,20 @@
 -- job before the first yield, and reuse the live instance on repeated execution.
 local bootEnv = getgenv()
 local bootJob = tostring(game.JobId)
+local buildVersion = "menu-server-3"
 local existingBoot = bootEnv.ENDHUB_BOOT
 if existingBoot and existingBoot.JobId == bootJob and existingBoot.Loading then
     return existingBoot.Hub or bootEnv.ENDHUB
 end
 local existingHub = bootEnv.ENDHUB
 if existingHub and existingHub.JobId == bootJob and existingHub.State
-    and existingHub.State.Ready and not existingHub.State.Unloaded then
+    and existingHub.State.Ready and not existingHub.State.Unloaded
+    and existingHub.WorkBuild == buildVersion and existingHub.ServerCycle
+    and type(existingHub.ServerCycle.MenuStep) == "function" then
     return existingHub
+end
+if existingHub and existingHub.Unload then
+    pcall(function() existingHub:Unload() end)
 end
 local boot = {JobId = bootJob, Loading = true}
 bootEnv.ENDHUB_BOOT = boot
@@ -2305,7 +2311,12 @@ end
 
 local bootOK, hub = pcall(function()
     local loaded = buildWork()
+    assert(loaded.ServerCycle and type(loaded.ServerCycle.MenuStep) == "function",
+        "[EndHub Loader] server cycle missing; initialization incomplete")
+    loaded.WorkBuild = buildVersion
+    bootEnv.ENDHUB = loaded
     loaded.ServerCycle.Bootstrap()
+    print("[EndHub Loader] " .. buildVersion .. " | cycle=" .. tostring(loaded.ServerCycle.Status))
     return loaded
 end)
 bootEnv.ENDHUB_WORK_LOADING = nil
