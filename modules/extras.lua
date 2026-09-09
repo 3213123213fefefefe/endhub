@@ -1,38 +1,33 @@
 return function(H)
-    local X = {Loading = false, Context = nil, Generation = 0}
+    local X = {}
     H.Extras = X
-    X.PinnedRepo = "https://raw.githubusercontent.com/3213123213fefefefe/endhub/88cb7baf859ab6e44109be8258c98e43f35978d5"
 
-    function X.Close()
-        X.Generation = X.Generation + 1
-        local ctx = X.Context
-        X.Context = nil
-        if ctx and ctx.CloseExtras then ctx.CloseExtras() end
+    function X.PrintPauseDiagnostic()
+        if H.ServerCycle and H.ServerCycle.Diagnostic then
+            local text = H.ServerCycle.Diagnostic()
+            print("[EndHub Pause] " .. tostring(text))
+            return text
+        end
+        print("[EndHub Debug] server-cycle diagnostic unavailable")
+        return nil
     end
 
-    function X.Open()
-        if X.Loading or H.State.Unloaded then return false end
-        if X.Context and not X.Context.State.Unloaded then return true end
-        X.Loading = true
-        local generation = X.Generation
-        task.spawn(function()
-            local ok, err = pcall(function()
-                local source = game:HttpGet(H.Repo .. "modules/extras_unified_loader.lua?v=" .. tostring(os.time()) .. "-" .. tostring(math.random(100000,999999)))
-                if H.State.Unloaded or generation ~= X.Generation then return end
-                local fn, compileError = loadstring(source, "EndHub Unified Extras")
-                assert(fn, compileError)
-                local init = fn()
-                assert(type(init) == "function", "invalid unified extras loader")
-                local ctx = init(H, X.PinnedRepo)
-                if H.State.Unloaded or generation ~= X.Generation then
-                    if ctx and ctx.CloseExtras then ctx.CloseExtras() end
-                    return
-                end
-                X.Context = ctx
-            end)
-            X.Loading = false
-            if not ok then warn("[EndHub Extras] " .. tostring(err)) end
-        end)
-        return true
+    function X.PrintRuntime()
+        local text = string.format(
+            "running=%s | phase=%s | sale=%s | target=%s | job=%s",
+            tostring(H.State.Running),
+            tostring(H.State.FarmSellPhase),
+            tostring(H.State.SellStatus),
+            H.State.CurrentTarget and tostring(H.State.CurrentTarget.Name) or "none",
+            tostring(game.JobId)
+        )
+        print("[EndHub Debug] " .. text)
+        return text
+    end
+
+    if H.UI and H.UI.Tabs and H.UI.Tabs.Debug then
+        local group = H.UI.Tabs.Debug:AddLeftGroupbox("Extras / Debug")
+        group:AddButton({Text = "Print Pause Diagnostic", Func = X.PrintPauseDiagnostic})
+        group:AddButton({Text = "Print Runtime State", Func = X.PrintRuntime})
     end
 end
