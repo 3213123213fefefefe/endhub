@@ -9,6 +9,8 @@ return function(H)
     local PLACE = game.PlaceId
     local JOB = tostring(game.JobId)
     local loaderURL = H.Repo .. "loader.lua"
+    local WATCH_SECONDS = 20
+    local REQUEUE_DELAY = 20.5
 
     local queueFunction = queue_on_teleport or queueonteleport
         or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
@@ -24,6 +26,12 @@ return function(H)
         end)
     end
 
+    local function sameSourceJob()
+        return tostring(game.JobId) == JOB
+            and H.State and not H.State.Unloaded
+            and R.Enabled
+    end
+
     function R.QueueBootstrap()
         if not R.Enabled then return false end
         intent(true)
@@ -34,21 +42,20 @@ return function(H)
             return false
         end
 
-        -- Potassium can start queued code while the source server is still alive.
-        -- Keep exactly one watcher per source job alive long enough to cover all
-        -- direct-hop retries instead of spawning several 25-second watchers.
+        -- Keep one short-lived watcher at a time. If a hop is still in progress
+        -- after 20 seconds, the source client queues a fresh watcher automatically.
         local now = tick()
-        if ENV.ENDHUB_QUEUE_JOB == JOB and now - (ENV.ENDHUB_QUEUE_AT or 0) < 125 then
+        if ENV.ENDHUB_QUEUE_JOB == JOB and now - (ENV.ENDHUB_QUEUE_AT or 0) < (WATCH_SECONDS + 2) then
             R.Continuity = "TELEPORT QUEUED"
             return true
         end
 
         local code = string.format([=[
-local expectedUser, sourceJob, loaderURL = %s, %q, %q
+local expectedUser, sourceJob, loaderURL, watchSeconds = %s, %q, %q, %s
 local Players = game:GetService("Players")
 
 local startedAt = tick()
-local deadline = startedAt + 120
+local deadline = startedAt + watchSeconds
 local announcedWait = false
 
 while tick() < deadline do
@@ -86,13 +93,13 @@ while tick() < deadline do
 
     if not announcedWait and tick() - startedAt >= 1 then
         announcedWait = true
-        print("[EndHub AutoLoad] queue callback started in source job | waiting up to 120s for destination")
+        print("[EndHub AutoLoad] queue callback started in source job | waiting up to " .. tostring(watchSeconds) .. "s for destination")
     end
     task.wait(0.10)
 end
 
-warn("[EndHub AutoLoad] destination job was not observed after 120s; watcher expired")
-]=], tostring(Player.UserId), JOB, loaderURL)
+warn("[EndHub AutoLoad] destination job was not observed after " .. tostring(watchSeconds) .. "s; watcher expired")
+]=], tostring(Player.UserId), JOB, loaderURL, tostring(WATCH_SECONDS))
 
         local ok, err = pcall(queueFunction, code)
         if not ok then
@@ -105,10 +112,24 @@ warn("[EndHub AutoLoad] destination job was not observed after 120s; watcher exp
         ENV.ENDHUB_QUEUE_AT = now
         ENV.ENDHUB_QUEUED_JOB = JOB
         R.Continuity = "TELEPORT QUEUED"
-        print("[EndHub AutoLoad] watcher queued | user=" .. tostring(Player.UserId) .. " | sourceJob=" .. JOB .. " | ttl=120s")
+        print("[EndHub AutoLoad] watcher queued | user=" .. tostring(Player.UserId) .. " | sourceJob=" .. JOB .. " | ttl=" .. WATCH_SECONDS .. "s")
+
+        -- Queue again only while this client is genuinely still trying to hop.
+        -- This avoids a permanent background loop during ordinary farming.
+        if R.Hopping and not R.AutoLoadRetryScheduled then
+            R.AutoLoadRetryScheduled = true
+            task.delay(REQUEUE_DELAY, function()
+                R.AutoLoadRetryScheduled = false
+                if not sameSourceJob() or not R.Hopping then return end
+                ENV.ENDHUB_QUEUE_AT = 0
+                print("[EndHub AutoLoad] destination not reached yet | retrying queue after 20s")
+                R.QueueBootstrap()
+            end)
+        end
+
         return true
     end
 
     R.AutoLoadPatchInstalled = true
-    print("[EndHub] teleport autoload patch v2 loaded | one 120s destination watcher per source job")
+    print("[EndHub] teleport autoload patch v3 loaded | 20s watcher + automatic retry while hopping")
 end
