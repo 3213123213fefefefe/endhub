@@ -19,6 +19,7 @@ return function(H)
         BossBotEnabled = true,
         MobFarmEnabled = true,
     }
+    local removed = {Desync = true, DesyncOffset = true, DesyncRate = true, NoKillbrick = true}
 
     local function serializableCopy(value, depth)
         depth = depth or 0
@@ -28,7 +29,7 @@ return function(H)
         if t ~= "table" then return nil end
         local out = {}
         for k, v in pairs(value) do
-            if type(k) == "string" or type(k) == "number" then
+            if (type(k) == "string" or type(k) == "number") and not removed[k] then
                 local copied = serializableCopy(v, depth + 1)
                 if copied ~= nil then out[k] = copied end
             end
@@ -40,7 +41,7 @@ return function(H)
         depth = depth or 0
         if depth > 12 or type(dst) ~= "table" or type(src) ~= "table" then return end
         for k, v in pairs(src) do
-            if not transient[k] then
+            if not transient[k] and not removed[k] then
                 if type(v) == "table" then
                     if type(dst[k]) ~= "table" then dst[k] = {} end
                     mergeInto(dst[k], v, depth + 1)
@@ -54,6 +55,7 @@ return function(H)
     function P.ConfigSnapshot()
         local out = serializableCopy(H.Config) or {}
         for key in pairs(transient) do out[key] = nil end
+        for key in pairs(removed) do out[key] = nil end
         return out
     end
 
