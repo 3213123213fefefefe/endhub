@@ -10,26 +10,34 @@ return function(H)
     H.PersistenceManager = {}
     local P = H.PersistenceManager
 
+    -- Runtime/action toggles are intentionally not restored as ON. The user's
+    -- actual settings are preserved, but loading EndHub never immediately
+    -- starts selling/flying/speed modifying/boss/mob farming/etc. by itself.
     local transient = {
         AutoSell = true,
         AutoFarmSell = true,
         MovementFly = true,
         MovementNoclip = true,
+        Desync = true,
         SpeedModifierEnabled = true,
         BossBotEnabled = true,
         MobFarmEnabled = true,
+        NoKillbrick = true,
     }
-    local removed = {Desync = true, DesyncOffset = true, DesyncRate = true, NoKillbrick = true}
 
     local function serializableCopy(value, depth)
         depth = depth or 0
         if depth > 12 then return nil end
+
         local t = type(value)
-        if t == "boolean" or t == "number" or t == "string" then return value end
+        if t == "boolean" or t == "number" or t == "string" then
+            return value
+        end
         if t ~= "table" then return nil end
+
         local out = {}
         for k, v in pairs(value) do
-            if (type(k) == "string" or type(k) == "number") and not removed[k] then
+            if type(k) == "string" or type(k) == "number" then
                 local copied = serializableCopy(v, depth + 1)
                 if copied ~= nil then out[k] = copied end
             end
@@ -40,8 +48,9 @@ return function(H)
     local function mergeInto(dst, src, depth)
         depth = depth or 0
         if depth > 12 or type(dst) ~= "table" or type(src) ~= "table" then return end
+
         for k, v in pairs(src) do
-            if not transient[k] and not removed[k] then
+            if not transient[k] then
                 if type(v) == "table" then
                     if type(dst[k]) ~= "table" then dst[k] = {} end
                     mergeInto(dst[k], v, depth + 1)
@@ -55,7 +64,6 @@ return function(H)
     function P.ConfigSnapshot()
         local out = serializableCopy(H.Config) or {}
         for key in pairs(transient) do out[key] = nil end
-        for key in pairs(removed) do out[key] = nil end
         return out
     end
 
@@ -74,14 +82,19 @@ return function(H)
     function P.SaveConfig(force)
         local snapshot = P.ConfigSnapshot()
         local okEncode, raw = pcall(HttpService.JSONEncode, HttpService, snapshot)
-        if not okEncode then H.State.PersistenceStatus = "CONFIG ENCODE FAILED" return false end
+        if not okEncode then
+            H.State.PersistenceStatus = "CONFIG ENCODE FAILED"
+            return false
+        end
         if not force and raw == lastConfigJson then return true end
+
         local ok = C.WriteJson(H.Persistence.ConfigFile, snapshot)
         if ok then
             lastConfigJson = raw
             H.State.PersistenceStatus = "CONFIG SAVED"
             return true
         end
+
         H.State.PersistenceStatus = "FILE I/O NOT AVAILABLE"
         return false
     end
@@ -90,7 +103,9 @@ return function(H)
     local diskPositions = C.ReadProfile(H.Persistence.PositionsFile, "bot_positions.json")
     if type(diskPositions) == "table" then
         for name, coords in pairs(diskPositions) do
-            if ENV.ENDHUB_BOT_POSITIONS[name] == nil then ENV.ENDHUB_BOT_POSITIONS[name] = coords end
+            if ENV.ENDHUB_BOT_POSITIONS[name] == nil then
+                ENV.ENDHUB_BOT_POSITIONS[name] = coords
+            end
         end
     end
 
@@ -110,11 +125,16 @@ return function(H)
         H.State.PersistenceStatus = ok and ("POSITION SAVED: " .. name) or "POSITION SAVE FAILED"
         return ok
     end
-    function P.GetPosition(name) return coordsToVector(ENV.ENDHUB_BOT_POSITIONS[name]) end
+
+    function P.GetPosition(name)
+        return coordsToVector(ENV.ENDHUB_BOT_POSITIONS[name])
+    end
+
     function P.ClearPosition(name)
         ENV.ENDHUB_BOT_POSITIONS[name] = nil
         C.WriteJson(H.Persistence.PositionsFile, ENV.ENDHUB_BOT_POSITIONS)
     end
+
     function P.SaveCurrentPosition(name)
         local root = C.Root()
         return root and P.SavePosition(name, root.Position) or false
@@ -123,12 +143,23 @@ return function(H)
     function P.SaveAll(force)
         local okConfig = P.SaveConfig(force == true)
         local seller = C.GetSavedSeller()
-        if seller then P.SavePosition("Clement, Merchant", seller) end
-        if H.Core and H.Core.SaveKeybinds then pcall(H.Core.SaveKeybinds) end
-        return okConfig
+        if seller then
+            P.SavePosition("Clement, Merchant", seller)
+        end
+        local okKeys = true
+        if H.Core and H.Core.SaveKeybinds then
+            local called, result = pcall(H.Core.SaveKeybinds)
+            okKeys = called and result ~= false
+        end
+        local ok = okConfig and okKeys
+        H.State.PersistenceStatus = ok and "ALL SETTINGS SAVED" or "SAVE FAILED"
+        print("[EndHub Persistence] " .. H.State.PersistenceStatus
+            .. " | path=" .. tostring(H.State.PersistencePath or H.Persistence.Dir))
+        return ok
     end
 
     P.LoadConfig()
+
     local savedSeller = C.GetSavedSeller()
     if savedSeller then
         ENV.ENDHUB_BOT_POSITIONS["Clement, Merchant"] = {savedSeller.X, savedSeller.Y, savedSeller.Z}
@@ -141,10 +172,13 @@ return function(H)
         while not H.State.Unloaded do
             pcall(function()
                 P.SaveConfig(false)
+
                 local seller = C.GetSavedSeller()
                 if seller then
                     local old = P.GetPosition("Clement, Merchant")
-                    if not old or (old - seller).Magnitude > 0.05 then P.SavePosition("Clement, Merchant", seller) end
+                    if not old or (old - seller).Magnitude > 0.05 then
+                        P.SavePosition("Clement, Merchant", seller)
+                    end
                 end
             end)
             task.wait(5)

@@ -143,23 +143,50 @@ return function(H)
         return true
     end
 
-    function C.ReadJson(path)
-        if not readfile or not isfile then return nil end
-        local okFile, exists = pcall(isfile, path)
-        if not okFile or not exists then return nil end
+    -- Some executors expose readfile/writefile but cannot create nested
+    -- directories reliably. Keep an account/map/profile-specific flat fallback
+    -- so settings never silently disappear after a successful-looking save.
+    local function fallbackPath(path)
+        return tostring(path):gsub("[^%w_.-]", "_")
+    end
+
+    local function readRaw(path)
+        if not readfile then return nil end
+        if isfile then
+            local okFile, exists = pcall(isfile, path)
+            if not okFile or not exists then return nil end
+        end
         local okRead, raw = pcall(readfile, path)
-        if not okRead or type(raw) ~= "string" then return nil end
+        return okRead and type(raw) == "string" and raw or nil
+    end
+
+    function C.ReadJson(path)
+        local raw = readRaw(path)
+        local used = path
+        if not raw then used, raw = fallbackPath(path), readRaw(fallbackPath(path)) end
+        if not raw then return nil end
         local okJson, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
-        if okJson and type(decoded) == "table" then return decoded end
+        if okJson and type(decoded) == "table" then
+            H.State.PersistencePath = used
+            return decoded
+        end
         return nil
     end
 
     function C.WriteJson(path, value)
         if not writefile then return false end
-        ensureDir()
         local okJson, raw = pcall(HttpService.JSONEncode, HttpService, value)
         if not okJson then return false end
-        return pcall(writefile, path, raw)
+        local function writeAndVerify(target)
+            local okWrite = pcall(writefile, target, raw)
+            if not okWrite then return false end
+            local check = readRaw(target)
+            if readfile and check ~= raw then return false end
+            H.State.PersistencePath = target
+            return true
+        end
+        if ensureDir() and writeAndVerify(path) then return true end
+        return writeAndVerify(fallbackPath(path))
     end
 
     function C.ReadProfile(path, legacyName)
@@ -243,12 +270,14 @@ return function(H)
     local savedKeysDisk = C.ReadProfile(H.Persistence.KeybindFile, "keybinds.json")
     if type(savedKeysDisk) == "table" then
         for k, v in pairs(savedKeysDisk) do
-            if ENV.ENDHUB_KEYBINDS[k] == nil then ENV.ENDHUB_KEYBINDS[k] = v end
+            ENV.ENDHUB_KEYBINDS[k] = v
         end
     end
 
     function C.SaveKeybinds()
-        C.WriteJson(H.Persistence.KeybindFile, ENV.ENDHUB_KEYBINDS)
+        local ok = C.WriteJson(H.Persistence.KeybindFile, ENV.ENDHUB_KEYBINDS)
+        H.State.PersistenceStatus = ok and "KEYBINDS SAVED" or "KEYBIND SAVE FAILED"
+        return ok
     end
 
     local capacityLabel, capacityScanAt = nil, -math.huge
@@ -402,4 +431,3 @@ return function(H)
         return tool and tool.Name or "None"
     end
 end
-
