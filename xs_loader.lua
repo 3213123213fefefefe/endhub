@@ -7,6 +7,10 @@ local function run(path)
 end
 
 local ENV = (type(getgenv) == "function" and getgenv()) or _G
+-- Stop the retired Solara-only menu loop if an older loader was executed in
+-- this same client. Otherwise it would survive and keep competing with main.
+if type(ENV.ENDHUB_XS_MENU_STOP) == "function" then pcall(ENV.ENDHUB_XS_MENU_STOP) end
+ENV.ENDHUB_XS_MENU_STOP, ENV.ENDHUB_XS_MENU_DRIVER = nil, nil
 local live = ENV.ENDHUB
 if live and live.Unload then pcall(function() live:Unload() end) end
 ENV.ENDHUB, ENV.ENDHUB_BOOT, ENV.ENDHUB_WORK_LOADING = nil, nil, nil
