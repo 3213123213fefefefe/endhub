@@ -116,6 +116,12 @@ return function(H)
             return false
         end
         local code = string.format([=[
+-- Some executors may deliver their teleport queue to another client. Do not
+-- initialize there, or rerun this queue in the source job before teleport.
+local expectedUser, sourceJob = %s, %q
+local players = game:GetService("Players")
+while not game:IsLoaded() or not players.LocalPlayer do task.wait(0.1) end
+if players.LocalPlayer.UserId ~= expectedUser or tostring(game.JobId) == sourceJob then return end
 local ok, data = pcall(function()
     return game:GetService("TeleportService"):GetTeleportSetting(%q)
 end)
@@ -124,7 +130,7 @@ local source = game:HttpGet(%q .. "?v=" .. tostring(os.time()))
 local fn, err = loadstring(source)
 assert(fn, err)
 fn()
-]=], SETTING, loaderURL)
+]=], tostring(Player.UserId), JOB, SETTING, loaderURL)
         local ok, err = pcall(queueFunction, code)
         if not ok then
             R.Continuity = "AUTOEXEC REQUIRED"
@@ -612,7 +618,8 @@ fn()
         R.HopFailed, R.HopError = true, tostring(message)
         if not R.HopOwned then
             R.Hopping, R.Failed = false, true
-            status("TELEPORT FAILED: " .. R.HopError .. " | USE RETRY")
+            R.HopRetryAt = tick() + 30
+            status("TELEPORT FAILED: " .. R.HopError .. " | AUTO RETRY IN 30s")
         end
     end
     C.Connect(Teleports.TeleportInitFailed, function(player, _, message)
@@ -620,6 +627,9 @@ fn()
     end)
     C.Connect(Player.OnTeleport, function(state)
         if not alive() then return end
+        R.LastTeleportEvent = tostring(state)
+        print("[EndHub Teleport] user=" .. tostring(Player.UserId) .. " | job=" .. JOB
+            .. " | event=" .. R.LastTeleportEvent .. " | owned=" .. tostring(R.HopOwned))
         if state == Enum.TeleportState.Started or state == Enum.TeleportState.InProgress then
             stopWork()
             local wasHopping = R.Hopping
@@ -637,8 +647,21 @@ fn()
             teleportFailed("teleport failed")
         end
     end)
+    function R.Diagnostic()
+        local target = H.State.CurrentTarget
+        return "user=" .. tostring(Player.UserId) .. " | job=" .. JOB
+            .. " | running=" .. tostring(H.State.Running) .. " | allowed=" .. tostring(R.Allowed)
+            .. " | hopping=" .. tostring(R.Hopping) .. " | failed=" .. tostring(R.Failed)
+            .. " | cycle=" .. tostring(R.Status) .. " | farm=" .. tostring(H.State.Status)
+            .. " | sale=" .. tostring(H.State.SellStatus) .. " | target=" .. (target and target.Name or "none")
+            .. " | targetAge=" .. tostring(target and math.floor(tick() - (H.State.TargetStarted or tick())) or 0)
+            .. " | lastTeleport=" .. tostring(R.LastTeleportEvent)
+            .. " | lastError=" .. tostring(R.LastControllerError)
+    end
     task.spawn(function()
         while not R.Closed and not H.State.Unloaded do
+            local ok, err = pcall(function()
+            R.LastControllerTick = tick()
             if alive() and not R.Hopping then
                 for player, record in pairs(R.Checks) do
                     if record.State == "unknown" and record.RetryAt and tick() >= record.RetryAt then
@@ -652,6 +675,24 @@ fn()
                 tryResume()
                 -- Automatic loot hops are decided only at the end of a complete route.
             end
+            end)
+            if not ok then
+                R.LastControllerError = tostring(err)
+                R.Allowed = false
+                H.State.Running = false
+                cfg.AutoSell, cfg.AutoFarmSell = false, false
+                pcall(stopWork, true)
+                status("CONTROLLER ERROR: " .. R.LastControllerError)
+                if not R.ErrorReported then warn("[EndHub Pause] " .. R.Diagnostic()) end
+                R.ErrorReported = true
+            else R.ErrorReported = false end
+            local target = H.State.CurrentTarget
+            local age = target and math.max(0, tick() - (H.State.TargetStarted or tick())) or 0
+            if alive() and (not H.State.Running or age > (tonumber(cfg.TargetTimeout) or 15) + 5)
+                and tick() >= (R.NextPauseLog or 0) then
+                R.NextPauseLog = tick() + 15
+                print("[EndHub Pause] " .. R.Diagnostic())
+            end
             task.wait(0.5)
         end
     end)
@@ -661,6 +702,7 @@ fn()
         group:AddButton({Text = "START CONTINUOUS CYCLE", Func = R.Start})
         group:AddButton({Text = "STOP CONTINUOUS CYCLE", Func = R.Stop})
         group:AddButton({Text = "RETRY CHECK / HOP", Func = R.Retry})
+        group:AddButton({Text = "PRINT PAUSE DIAGNOSTIC", Func = function() print("[EndHub Pause] " .. R.Diagnostic()) end})
         group:AddButton({Text = "SERVERHOP NOW", Func = function() R.RequestHop("manual") end})
         group:AddToggle("EH_CycleAutoSell", {Text = "Sell when full", Default = cfg.ServerCycleAutoSell,
             Callback = function(value) cfg.ServerCycleAutoSell = value if R.Allowed then cfg.AutoFarmSell = value end end})

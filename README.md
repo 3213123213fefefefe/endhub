@@ -24,4 +24,6 @@ Endure → existing slot → current server → living character/respawn delay �
 
 ## Validation
 
-`python tests/run_lua_tests.py` checks Lua syntax and runs 24 deterministic simulated-service tests. With the extras branch checked out next to this directory as `endhub-extras`, it also checks those sources and runs the 25th test for actual Extras initialization/cleanup. Tests cover profile isolation, migrations, input, saved filters, duplicate loads, route/hop decisions, role outages and respawn gates. These are not a live multi-client Roblox/executor benchmark.
+`python tests/run_lua_tests.py` checks Lua syntax and runs 28 deterministic simulated-service tests. With the extras branch checked out next to this directory as `endhub-extras`, it also checks those sources and runs the 29th test for actual Extras initialization/cleanup. Tests cover profile isolation, migrations, input, saved filters, duplicate loads, route/hop decisions, role outages and respawn gates. These are not a live multi-client Roblox/executor benchmark.
+
+Multi-client-2 also bounds external teleport failures, rejects queued bootstraps delivered to another account/source job, and reports `[EndHub Pause]` / `[EndHub Teleport]` with the account and job. A transient controller error pauses work and keeps the controller alive for a checked recovery. This does not establish that another process caused a reported pause.

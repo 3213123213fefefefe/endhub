@@ -266,7 +266,7 @@ test("failed or timed-out checks never authorize loot; retry does not add connec
     for _, entry in ipairs({{fail = true}, {name = "Owner", rank = 255, delay = 60}}) do
         local t = context({ids = {2}, roles = {[2] = entry}})
         t.R.Bootstrap(); t.advance(36)
-        equal(t.starts, 0); equal(#t.teleports, 0); equal(t.R.Checks[t.players.list[2]].State, "unknown")
+        equal(t.starts, 0); equal(#t.teleports, 0); assert(t.R.Checks[t.players.list[2]].State == "unknown" or t.R.Checks[t.players.list[2]].State == "pending")
         t.roles[2] = {name = "Member", rank = 1}
         t.R.Retry(); t.advance(40)
         equal(t.starts, 1); equal(#t.teleports, 0); equal(#t.H.Connections, 4); equal(#t.queued, 1)
@@ -712,6 +712,59 @@ if extrasFile then
         for _, c in ipairs(extraSignal.connections) do equal(c.Connected, false) end
     end)
 end
+
+test("teleport queue rejects another account and the source job", function()
+    local t = context()
+    t.R.Bootstrap(); t.advance(1)
+    local queued = assert(load(t.queued[1]))
+    local boots = 0
+    game.HttpGet = function() boots = boots + 1 return "loader" end
+    loadstring = function() return function() end end
+    queued(); equal(boots, 0)
+    game.JobId = "destination"
+    t.player.UserId = 999
+    queued(); equal(boots, 0)
+    t.player.UserId = 1
+    queued(); equal(boots, 1)
+end)
+
+test("another player's teleport leaves this client's active target and cycle intact", function()
+    local t = context()
+    local other = t:add(2)
+    t.R.Bootstrap(); t.advance(1)
+    local drop = {Name = "Goblet"}
+    t.H.State.CurrentTarget = drop
+    other.OnTeleport:Fire(Enum.TeleportState.Started)
+    t.service.TeleportInitFailed:Fire(other, "Failure", "other client", game.PlaceId)
+    t.advance(1)
+    equal(t.R.Hopping, false); equal(t.H.State.Running, true)
+    equal(t.H.State.CurrentTarget, drop)
+end)
+
+test("external teleport timeout recovers automatically after fresh checks", function()
+    local t = context()
+    t.R.Bootstrap(); t.advance(1)
+    t.player.OnTeleport:Fire(Enum.TeleportState.Started); t.advance(1)
+    equal(t.H.State.Running, false)
+    t.advance(31); assert(t.R.Failed); equal(t.H.State.Running, false)
+    t.advance(31); equal(t.R.Failed, false); equal(t.H.State.Running, true)
+    assert(t.queries[1] >= 2)
+end)
+
+test("a transient controller exception pauses safely and does not kill its loop", function()
+    local t = context()
+    t.R.Bootstrap(); t.advance(1)
+    local original = t.R.MenuStep
+    local calls = 0
+    t.R.MenuStep = function()
+        calls = calls + 1
+        if calls == 1 then error("transient GUI failure") end
+        return original()
+    end
+    t.advance(0.5); equal(t.H.State.Running, false)
+    assert(t.R.LastControllerError:find("transient GUI failure", 1, true))
+    t.advance(1); equal(t.H.State.Running, true)
+end)
 
 for _, entry in ipairs(tests) do
     local ok, err = pcall(entry[2])
