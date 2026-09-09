@@ -1,6 +1,6 @@
 -- One owner per Roblox client. AutoExecute + teleport queue share this guard.
 local ENV = getgenv()
-local JOB, VERSION = tostring(game.JobId), "multi-client-13"
+local JOB, VERSION = tostring(game.JobId), "multi-client-14"
 local boot = ENV.ENDHUB_BOOT
 if boot and boot.JobId == JOB and boot.Loading then
     while boot.Loading and ENV.ENDHUB_BOOT == boot do task.wait(0.1) end
@@ -25,7 +25,7 @@ local ok, result = pcall(function()
     end
     local hub = fetch("EndHub.lua")
     for _, path in ipairs({"modules/fps_patch.lua", "modules/noclip_strength_patch.lua", "modules/server_cycle.lua",
-        "modules/legacy_autoload_patch.lua", "modules/menu_first_screen_patch.lua",
+        "modules/legacy_autoload_patch.lua", "modules/menu_first_screen_patch.lua", "modules/menu_stale_guard_patch.lua",
         "modules/server_hop_quality_patch.lua"}) do
         fetch(path)(hub)
     end
