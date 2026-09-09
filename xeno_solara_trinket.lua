@@ -25,6 +25,7 @@ local Bot = {
     TargetTimeout = 12,
     RouteRadius = 140,
     AutoHop = true,
+    Hopping = false,
     Connections = {},
 }
 ENV.ENDHUB_XS = Bot
@@ -171,14 +172,119 @@ local function queueFn()
     return nil
 end
 
-local branchLoader = [[loadstring(game:HttpGet("https://raw.githubusercontent.com/3213123213fefefefe/endhub/compat-xeno-solara/xeno_solara_trinket.lua?v=" .. tostring(os.time())))()]]
+-- Reload the combined XS loader after a successful teleport so the Solara
+-- menu helper is also restored, not only the trinket loop.
+local branchLoader = [[loadstring(game:HttpGet("https://raw.githubusercontent.com/3213123213fefefefe/endhub/compat-xeno-solara/xs_loader.lua?v=" .. tostring(os.time())))()]]
+
+local visitedServers = {[tostring(game.JobId)] = true}
+
+local function getServerCandidates()
+    local rows, cursor = {}, nil
+    for _ = 1, 4 do
+        local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
+            .. "/servers/Public?sortOrder=Asc&limit=100&excludeFullGames=true"
+        if cursor then url = url .. "&cursor=" .. HttpService:UrlEncode(cursor) end
+        local ok, raw = pcall(function() return game:HttpGet(url) end)
+        if not ok or type(raw) ~= "string" then break end
+        local decodedOk, data = pcall(HttpService.JSONDecode, HttpService, raw)
+        if not decodedOk or type(data) ~= "table" or type(data.data) ~= "table" then break end
+        for _, server in ipairs(data.data) do
+            local id = tostring(server.id or "")
+            local playing = tonumber(server.playing)
+            local maxPlayers = tonumber(server.maxPlayers)
+            if id ~= "" and id ~= tostring(game.JobId) and not visitedServers[id]
+                and playing and maxPlayers and playing < maxPlayers then
+                rows[#rows + 1] = {
+                    id = id,
+                    playing = playing,
+                    maxPlayers = maxPlayers,
+                    ping = tonumber(server.ping) or math.huge,
+                    fps = tonumber(server.fps) or 0,
+                }
+            end
+        end
+        cursor = data.nextPageCursor
+        if type(cursor) ~= "string" or cursor == "" then break end
+    end
+    table.sort(rows, function(a, b)
+        if a.ping ~= b.ping then return a.ping < b.ping end
+        if a.fps ~= b.fps then return a.fps > b.fps end
+        return a.playing < b.playing
+    end)
+    return rows
+end
 
 local function hop()
+    if Bot.Hopping then return false end
+    Bot.Hopping = true
+    local wasRunning = Bot.Running
+    Bot.Running = false
+
     local q = queueFn()
-    if q then pcall(q, branchLoader) end
-    Bot.Status = q and "HOPPING" or "HOPPING - RERUN SCRIPT AFTER"
-    pcall(function() TeleportService:Teleport(game.PlaceId, player) end)
+    if q then
+        local okQueue, errQueue = pcall(q, branchLoader)
+        if not okQueue then
+            warn("[EndHub XS Hop] queue failed: " .. tostring(errQueue))
+            q = nil
+        end
+    end
+
+    local candidates = getServerCandidates()
+    print(string.format("[EndHub XS Hop] candidates=%d | queue=%s | current=%s",
+        #candidates, q and "OK" or "NO", tostring(game.JobId)))
+
+    if #candidates == 0 then
+        Bot.Status = "HOP FAILED - NO SERVER"
+        Bot.Hopping = false
+        Bot.Running = wasRunning
+        return false
+    end
+
+    for attempt = 1, math.min(4, #candidates) do
+        local target = candidates[attempt]
+        visitedServers[target.id] = true
+        Bot.Status = string.format("HOP %d -> %s", attempt, target.id:sub(1, 8))
+        print(string.format("[EndHub XS Hop] TELEPORT try=%d server=%s ping=%s playing=%d/%d",
+            attempt, target.id, tostring(target.ping), target.playing, target.maxPlayers))
+
+        local failed = false
+        local failMessage = nil
+        local failConn
+        failConn = TeleportService.TeleportInitFailed:Connect(function(plr, result, message, placeId)
+            if plr == player and tonumber(placeId) == tonumber(game.PlaceId) then
+                failed = true
+                failMessage = tostring(result) .. " | " .. tostring(message)
+            end
+        end)
+
+        local ok, err = pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, target.id, player)
+        end)
+        if not ok then
+            failed = true
+            failMessage = tostring(err)
+        end
+
+        local deadline = tick() + 8
+        while ENV.ENDHUB_XS == Bot and not failed and tick() < deadline do task.wait(0.2) end
+        if failConn then pcall(function() failConn:Disconnect() end) end
+
+        if failed then
+            warn("[EndHub XS Hop] failed try=" .. attempt .. " | " .. tostring(failMessage))
+            task.wait(0.8)
+        else
+            -- If this VM is still alive after the deadline, the teleport did not
+            -- complete. Try another direct instance instead of silently stopping.
+            warn("[EndHub XS Hop] no destination observed; trying another server")
+        end
+    end
+
+    Bot.Status = q and "HOP FAILED - RETRY" or "HOP FAILED - RERUN AFTER HOP"
+    Bot.Hopping = false
+    Bot.Running = wasRunning
+    return false
 end
+Bot.Hop = hop
 
 local guiParent = CoreGui
 if type(gethui) == "function" then
@@ -236,6 +342,7 @@ local function button(text, y, fn)
 end
 
 button("START / STOP BOT", 90, function()
+    if Bot.Hopping then return end
     Bot.Running = not Bot.Running
     Bot.Status = Bot.Running and "STARTED" or "STOPPED"
 end)
@@ -254,7 +361,7 @@ button("CLEAR ROUTE", 198, function()
     Bot.Status = "ROUTE CLEARED"
     saveRoute()
 end)
-button("SERVER HOP NOW", 234, hop)
+button("SERVER HOP NOW", 234, function() task.spawn(hop) end)
 
 local runningThread = false
 local function botLoop()
@@ -262,6 +369,7 @@ local function botLoop()
     runningThread = true
     task.spawn(function()
         while ENV.ENDHUB_XS == Bot do
+            if Bot.Hopping then task.wait(0.2) continue end
             if not Bot.Running then task.wait(0.2) continue end
             if #Bot.Route == 0 then Bot.Status = "NO ROUTE POINTS" task.wait(0.5) continue end
             if Bot.RouteIndex > #Bot.Route then Bot.RouteIndex = 1 end
@@ -270,7 +378,7 @@ local function botLoop()
             teleport(point)
             task.wait(Bot.PointWait)
             local foundAny = false
-            while Bot.Running do
+            while Bot.Running and not Bot.Hopping do
                 local target = nearestDrop(point, Bot.RouteRadius)
                 if not target then break end
                 foundAny = true
@@ -286,7 +394,7 @@ local function botLoop()
                 if Bot.AutoHop and not foundAny then
                     task.wait(1)
                     hop()
-                    task.wait(8)
+                    task.wait(1)
                 end
             end
             task.wait(0.05)
@@ -311,11 +419,12 @@ end)
 
 function Bot.Unload()
     Bot.Running = false
+    Bot.Hopping = false
     for _, c in ipairs(Bot.Connections) do pcall(function() c:Disconnect() end) end
     pcall(function() gui:Destroy() end)
     if ENV.ENDHUB_XS == Bot then ENV.ENDHUB_XS = nil end
 end
 
-print(string.format("[EndHub XS] loaded | executor=%s | fs=%s | queue=%s | route=%d",
+print(string.format("[EndHub XS] loaded | executor=%s | fs=%s | queue=%s | route=%d | direct-hop=v2",
     executorName(), fsOK and "OK" or "MEMORY", queueFn() and "OK" or "NO", #Bot.Route))
 return Bot
