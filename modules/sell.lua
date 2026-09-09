@@ -285,7 +285,7 @@ return function(H)
     end
 
     function S.Step()
-        if H.State.Unloaded then return end
+        if H.State.Unloaded or H.State.Ready == false then return end
         local active = H.Config.AutoSell or runtime.OneShot or runtime.InteractOnly
         if not active then return end
 
@@ -358,7 +358,7 @@ return function(H)
     end
 
     function S.AutoFarmStep()
-        if H.State.Unloaded or not H.Config.AutoFarmSell then return end
+        if H.State.Unloaded or H.State.Ready == false or not H.Config.AutoFarmSell then return end
         local cur, max = C.ReadCapacity()
         if not cur or not max then return end
 
@@ -387,3 +387,4 @@ return function(H)
         S.Step()
     end)
 end
+

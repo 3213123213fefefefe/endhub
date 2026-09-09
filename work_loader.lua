@@ -2,7 +2,7 @@
 -- job before the first yield, and reuse the live instance on repeated execution.
 local bootEnv = getgenv()
 local bootJob = tostring(game.JobId)
-local buildVersion = "menu-server-3"
+local buildVersion = "menu-server-4"
 local existingBoot = bootEnv.ENDHUB_BOOT
 if existingBoot and existingBoot.JobId == bootJob and existingBoot.Loading then
     return existingBoot.Hub or bootEnv.ENDHUB
@@ -1060,7 +1060,7 @@ return function(H)
     end
     local previousStep = F.Step
     function F.Step(dt)
-        if H.State.Unloaded or not H.State.Running or cfg.AutoSell
+        if H.State.Unloaded or H.State.Ready == false or not H.State.Running or cfg.AutoSell
             or (cfg.AutoFarmSell and H.State.FarmSellPhase == 'SELL') then return end
         if not cfg.TrinketExplore or #route == 0 then return previousStep(dt) end
         local root, hum = C.Root(), C.Humanoid()
@@ -2033,7 +2033,7 @@ return function(H)
     -- Replace only the seller step. Farm logic, saved Clement position,
     -- filters and all other features remain untouched.
     function S.Step()
-        if H.State.Unloaded or runtime.IndividualBusy or runtime.SaleBusy then return end
+        if H.State.Unloaded or H.State.Ready == false or runtime.IndividualBusy or runtime.SaleBusy then return end
         local active = H.Config.AutoSell or runtime.OneShot or runtime.InteractOnly
         if not active then return end
 

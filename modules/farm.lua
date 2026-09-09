@@ -152,7 +152,7 @@ return function(H)
     end
 
     function F.Start()
-        if H.State.Unloaded then return end
+        if H.State.Unloaded or H.State.Ready == false then return end
         if H.Boss and H.Config.BossBotEnabled then H.Boss.Stop() end
         if H.State.StartedAt <= 0 then H.State.StartedAt = tick() end
         H.State.Running = true
@@ -192,7 +192,7 @@ return function(H)
     end
 
     function F.Step(dt)
-        if H.State.Unloaded or not H.State.Running then return end
+        if H.State.Unloaded or H.State.Ready == false or not H.State.Running then return end
         if H.Config.AutoSell then return end
 
         local root = C.Root()

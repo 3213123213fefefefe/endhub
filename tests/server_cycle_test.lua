@@ -422,7 +422,8 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     game.GetService = function(self, name)
         if name == "GuiService" then return {GetGuiInset = function() return {X = 0, Y = 36} end} end
         if name == "VirtualInputManager" then return {SendMouseButtonEvent = function(_, x, y, _, down)
-            equal(x, 650); equal(y, 451)
+            equal(x, 650); equal(y, 415)
+            if down then t.mouseDownAt = tick() else assert(tick() - t.mouseDownAt >= 0.079) end
             if not down then screen.Enabled = false end
         end} end
         return oldGetService(self, name)

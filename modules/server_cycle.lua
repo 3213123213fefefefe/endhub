@@ -425,14 +425,14 @@ fn()
             end
             local position, size = target.AbsolutePosition, target.AbsoluteSize
             local x, y = position.X + size.X / 2, position.Y + size.Y / 2
-            local screen = target.Parent
-            while screen and screen ~= pg and not screen:IsA("ScreenGui") do screen = screen.Parent end
-            if screen and screen:IsA("ScreenGui") and not screen.IgnoreGuiInset then
-                local inset = game:GetService("GuiService"):GetGuiInset()
-                x, y = x + inset.X, y + inset.Y
-            end
+            -- AbsolutePosition already locates this row. Adding the top inset
+            -- can move the click into the next server (rows are only 49px tall).
+            print("[EndHub Menu] mouse center=" .. x .. "," .. y
+                .. " | row=" .. position.X .. "," .. position.Y .. " size=" .. size.X .. "," .. size.Y)
             local input = game:GetService("VirtualInputManager")
+            pcall(function() input:SendMouseMoveEvent(x, y, game) end)
             input:SendMouseButtonEvent(x, y, 0, true, game, 0)
+            task.wait(0.08)
             input:SendMouseButtonEvent(x, y, 0, false, game, 0)
         end)
         status(ok and "MENU: ENTERING GAME" or "MENU CLICK FAILED")
