@@ -13,6 +13,7 @@ return function(H)
     cfg.PickupRarityFilter = cfg.PickupRarityFilter == true
     cfg.TrinketESP = cfg.TrinketESP == true
     cfg.TrinketESPDistance = tonumber(cfg.TrinketESPDistance) or 2000
+
     local function metadata(obj)
         local value = obj:GetAttribute('Rarity')
         if type(value) == 'string' and value:match('%S') then return C.NormalizeRarity(value) end
@@ -36,9 +37,9 @@ return function(H)
         end
         return found or 'Unknown'
     end
-    local cache = setmetatable({}, {__mode = "k"})
+    local cache = setmetatable({}, {__mode = 'k'})
     local function rarityOf(obj)
-        if not obj then return "Unknown" end
+        if not obj then return 'Unknown' end
         local old = cache[obj]
         if old and tick() - old.At < 0.5 then return old.Value end
         local value = scanRarity(obj)
@@ -46,11 +47,13 @@ return function(H)
         return value
     end
     H.TrinketRarity = {Read = rarityOf}
+
     local previousAllowed = F.Allowed
     function F.Allowed(obj)
         if not previousAllowed(obj) then return false end
         return not cfg.PickupRarityFilter or cfg.PickupRarities[rarityOf(obj)] == true
     end
+
     local function selection(value)
         local out = {}
         if type(value) == 'table' then
@@ -60,9 +63,7 @@ return function(H)
     end
     local function rarityChoices()
         local values, seen = {}, {}
-        local function add(value)
-            if not seen[value] then seen[value] = true values[#values + 1] = value end
-        end
+        local function add(value) if not seen[value] then seen[value] = true values[#values + 1] = value end end
         for _, value in ipairs(defaults) do add(value) end
         for value in pairs(cfg.TrinketESPRarities) do add(value) end
         for value in pairs(cfg.PickupRarities) do add(value) end
@@ -72,6 +73,7 @@ return function(H)
         end
         return values
     end
+
     local initialPickup = selection(cfg.PickupRarities)
     local pickupGroup = H.UI.Tabs.Botting:AddRightGroupbox('Pickup Rarity')
     pickupGroup:AddToggle('EH_PickupRarityFilter', {
@@ -82,10 +84,9 @@ return function(H)
         Text = 'Rarities to pick', Values = rarityChoices(), Multi = true, Searchable = true,
         Callback = function(value) cfg.PickupRarities = selection(value) F.ClearTarget() end,
     })
-    pickupGroup:AddLabel('With the filter ON, an empty selection picks nothing. The loot-name filter also applies.', true)
     cfg.PickupRarities = initialPickup
+
     local options = H.UI.Options
-    -- Dropdown constructors may call their callback with an empty initial selection.
     local function refresh()
         local values = rarityChoices()
         for _, item in ipairs({{'EH_TrinketESPRarities', 'TrinketESPRarities'}, {'EH_PickupRarities', 'PickupRarities'}}) do
@@ -112,5 +113,5 @@ return function(H)
     pickupGroup:AddButton({Text = 'Refresh rarities / log drops', Func = diagnose})
     refresh()
 
-    print("[EndHub] pickup rarity filter loaded")
+    print('[EndHub] pickup rarity filter loaded')
 end
