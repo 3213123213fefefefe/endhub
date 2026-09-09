@@ -171,6 +171,7 @@ local function context(options)
     end
     t.H, t.env, t.players, t.player, t.groups, t.service = H, env, players, player, groups, teleports
     t.R = assert(load(cycleSource))()(H)
+    t.R.MenuEntered = true
     return t
 end
 local tests = {}
@@ -359,6 +360,59 @@ test("AutoExecute-only executors and external teleport failures remain manageabl
     t.service.TeleportInitFailed:Fire(t.player, "Failure", "external failure", game.PlaceId); t.advance(0)
     equal(t.R.Hopping, false); assert(t.R.Failed)
     t.R.Retry(); t.advance(1); equal(t.starts, 2)
+end)
+
+test("menu enters Play, existing Slot 1 and current server before starting loot", function()
+    local t = context()
+    t.R.MenuEntered = false
+    local function node(kind, text, parent)
+        local n = {Text = text or "", Name = text or kind, Parent = parent, Visible = true, Enabled = true, children = {}}
+        function n:IsA(k) return k == kind or (k == "GuiButton" and kind == "TextButton")
+            or (k == "GuiObject" and kind ~= "PlayerGui" and kind ~= "ScreenGui") end
+        function n:GetChildren() return self.children end
+        function n:GetDescendants()
+            local out = {}
+            for _, child in ipairs(self.children) do
+                out[#out + 1] = child
+                for _, desc in ipairs(child:GetDescendants()) do out[#out + 1] = desc end
+            end
+            return out
+        end
+        function n:IsDescendantOf(ancestor)
+            local p = self.Parent
+            while p do if p == ancestor then return true end p = p.Parent end
+            return false
+        end
+        function n:GetFullName() return self.Name end
+        n.MouseButton1Click, n.Activated, n.MouseButton1Down = {}, {}, {}
+        if parent then parent.children[#parent.children + 1] = n end
+        return n
+    end
+    local pg = node("PlayerGui")
+    local screen = node("ScreenGui", nil, pg)
+    local play = node("TextButton", "Resistir", screen)
+    local slots = node("Frame", nil, screen); slots.Visible = false
+    local one = node("Frame", nil, slots)
+    node("TextLabel", "Slot 1", one)
+    local enter = node("TextButton", "Resistir", one)
+    local delete = node("TextButton", "Deletar", one)
+    local two = node("Frame", nil, slots)
+    node("TextLabel", "Slot 2", two); node("TextButton", "Resistir", two)
+    local current = node("TextButton", "Noble Dorman (Current Server)", screen); current.Visible = false
+    t.player.FindFirstChild = function(_, name) if name == "PlayerGui" then return pg end end
+    local clicks = 0
+    getconnections = function() return {true} end
+    firesignal = function(event)
+        clicks = clicks + 1
+        if event == play.MouseButton1Click then play.Visible = false slots.Visible = true
+        elseif event == enter.MouseButton1Click then slots.Visible = false current.Visible = true
+        elseif event == current.MouseButton1Click then screen.Enabled = false
+        else error("clicked an unrelated button") end
+    end
+    t.R.Bootstrap(); t.advance(1); equal(t.starts, 0)
+    t.advance(2); equal(t.starts, 0)
+    t.advance(5); equal(clicks, 3); equal(t.starts, 1); assert(t.R.MenuEntered)
+    getconnections, firesignal = nil, nil
 end)
 
 test("actual Work entrypoint deduplicates concurrent and repeated execution and recovers from load failure", function()

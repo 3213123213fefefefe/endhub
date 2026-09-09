@@ -269,12 +269,113 @@ fn()
             end end
         end
     end
+    -- Menu flow observed in the game: Resistir / Play -> Slot 1 -> Current Server.
+    -- Only inspect visible game UI; never select a new/delete/purchase slot button.
+    function R.MenuStep()
+        if R.MenuEntered then return false end
+        local pg = Player:FindFirstChild("PlayerGui")
+        if not pg then status("WAIT PLAYER GUI") return true end
+        local function visible(obj)
+            local node = obj
+            while node and node ~= pg do
+                if node:IsA("GuiObject") and not node.Visible then return false end
+                if node:IsA("ScreenGui") and not node.Enabled then return false end
+                node = node.Parent
+            end
+            return node == pg
+        end
+        local function label(obj)
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                return normalized(tostring(obj.Text):gsub("<[^>]+>", ""))
+            end
+            return ""
+        end
+        local function buttonFor(obj)
+            local node = obj
+            for _ = 1, 4 do
+                if not node or node == pg or node:IsA("ScreenGui") then break end
+                if node:IsA("GuiButton") then return node end
+                -- Some rows put their caption next to a transparent click button.
+                for _, child in ipairs(node:GetChildren()) do
+                    if child:IsA("GuiButton") and visible(child)
+                        and (label(child) == label(obj) or
+                            (node == obj.Parent and label(child) == "" and normalized(child.Name) == "button")) then
+                        return child
+                    end
+                end
+                node = node.Parent
+            end
+        end
+        local play, current, slotOne = {}, nil, nil
+        local sawMenu, sawSlots = false, false
+        for _, obj in ipairs(pg:GetDescendants()) do
+            if visible(obj) then
+                local text = label(obj)
+                if text == "play" or text == "resist" or text == "resistir" or text == "jogar" then
+                    sawMenu = true
+                    local button = buttonFor(obj)
+                    if button then play[#play + 1] = button end
+                elseif text:match("^slot%s*%d+$") then
+                    sawMenu, sawSlots = true, true
+                    if text:match("^slot%s*1$") then slotOne = obj.Parent end
+                elseif text:find("current server", 1, true) or text:find("servidor atual", 1, true) then
+                    sawMenu = true
+                    current = buttonFor(obj)
+                elseif text == "menu do servidor" or text == "server menu" or text == "the veil" then
+                    sawMenu = true
+                end
+            end
+        end
+        if not sawMenu then
+            local hum = C.Humanoid()
+            if not C.Root() or not hum or hum.Health <= 0 then
+                R.MenuClearSince = nil
+                status("WAIT CHARACTER AFTER MENU")
+                return true
+            end
+            R.MenuClearSince = R.MenuClearSince or tick()
+            if tick() - R.MenuClearSince < 1 then return true end
+            R.MenuEntered = true
+            print("[EndHub Menu] menu closed and character ready")
+            return false
+        end
+        R.MenuClearSince = nil
+        local target = current
+        if not target then
+            for _, candidate in ipairs(play) do
+                if not sawSlots or (slotOne and candidate:IsDescendantOf(slotOne)) then
+                    target = candidate
+                    break
+                end
+            end
+        end
+        if not target then status("WAIT MENU BUTTON / SLOT 1 / CURRENT SERVER") return true end
+        if tick() - (R.LastMenuClick or -math.huge) < 2 then return true end
+        R.LastMenuClick = tick()
+        local ok, err = pcall(function()
+            -- Use one connected signal, never all of them (which can enter twice).
+            if type(getconnections) == "function" and type(firesignal) == "function" then
+                for _, event in ipairs({target.MouseButton1Click, target.Activated, target.MouseButton1Down}) do
+                    if #getconnections(event) > 0 then firesignal(event) return end
+                end
+            end
+            local position, size = target.AbsolutePosition, target.AbsoluteSize
+            local x, y = position.X + size.X / 2, position.Y + size.Y / 2
+            local input = game:GetService("VirtualInputManager")
+            input:SendMouseButtonEvent(x, y, 0, true, game, 0)
+            input:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        end)
+        status(ok and "MENU: ENTERING GAME" or "MENU CLICK FAILED")
+        print("[EndHub Menu] " .. target:GetFullName() .. " | " .. (ok and "clicked" or tostring(err)))
+        return true -- A click is not evidence that the character has entered.
+    end
     local function tryResume()
         if not alive() or R.Hopping or R.Failed or R.Checking or R.Allowed then return end
         for _, player in ipairs(Players:GetPlayers()) do
             local record = R.Checks[player]
             if not record or record.State ~= "allowed" then return end
         end
+        if R.MenuStep() then return end
         if not C.Root() then status("WAIT CHARACTER") return end
         R.Allowed, R.IdleSince = true, nil
         cfg.AutoFarmSell = cfg.ServerCycleAutoSell

@@ -28,3 +28,7 @@ AutoExecute precisa executar o loader após cada troca. Logs continuam em
 Verificação: `python tests/run_lua_tests.py` (biblioteca Lua 5.4) ou
 `lua5.4 tests/server_cycle_test.lua`, executado na raiz do repositório. Os testes
 usam serviços simulados; não substituem a validação dentro do Roblox.
+
+## Entrada automática no jogo
+
+Após verificar os jogadores, o ciclo procura os botões visíveis do jogo: **Play / Resistir**, **Slot 1** e **Current Server / Servidor atual**, conforme o menu enviado. Clica uma vez por tentativa, com intervalo de dois segundos. Só libera o Loot quando o menu desaparece e há personagem vivo. Não cria nem exclui slots. Se a interface mudar e não houver botão reconhecido, aguarda e mostra o status; os cliques aparecem em `[EndHub Menu]`.
