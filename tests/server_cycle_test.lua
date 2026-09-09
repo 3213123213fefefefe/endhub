@@ -478,7 +478,7 @@ test("actual Work entrypoint deduplicates concurrent and repeated execution and 
     getfenv, setfenv = function() return _G end, function() end
     game.HttpGet = function(_, url)
         if url:find("server_cycle.lua", 1, true) then
-            assert(url:find("/5df838a6867f4fa2f84a17e73767269746e364a8/", 1, true), "cycle module must be pinned")
+            assert(url:find("/1db0dd34f438133a967af02ee033323ed51ab9bd/", 1, true), "cycle module must be pinned")
             return "CYCLE"
         end
         return "BASE"
