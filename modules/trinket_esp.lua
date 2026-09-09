@@ -3,6 +3,7 @@ return function(H)
     local rarityOf = H.TrinketRarity.Read
     local function selection(v) local out = {} for k, on in pairs(v or {}) do if on then out[k] = true end end return out end
     local function rarityChoices() return {"Common","Uncommon","Rare","Epic","Legendary","Mythic","Exotic","Elite","Unknown"} end
+    local savedESPRarities = selection(cfg.TrinketESPRarities)
     local espGroup = H.UI.Tabs.Visuals:AddRightGroupbox('Trinket ESP')
     espGroup:AddToggle('EH_TrinketESP', {
         Text = 'Trinket ESP', Default = cfg.TrinketESP,
@@ -17,7 +18,7 @@ return function(H)
         Rounding = 0, Suffix = ' studs', Callback = function(value) cfg.TrinketESPDistance = value end,
     })
     espGroup:AddLabel('Empty selection shows nothing. Unknown means no unambiguous rarity metadata.', true)
-    H.UI.Options.EH_TrinketESPRarities:SetValue(cfg.TrinketESPRarities)
+    H.UI.Options.EH_TrinketESPRarities:SetValue(savedESPRarities)
     local colors = {
         Common = Color3.fromRGB(230,230,230), Uncommon = Color3.fromRGB(100,235,130),
         Rare = Color3.fromRGB(100,170,255), Epic = Color3.fromRGB(195,115,255),
