@@ -1,3 +1,21 @@
+-- AutoExecute and the teleport queue may both run this entrypoint. Claim the
+-- job before the first yield, and reuse the live instance on repeated execution.
+local bootEnv = getgenv()
+local bootJob = tostring(game.JobId)
+local existingBoot = bootEnv.ENDHUB_BOOT
+if existingBoot and existingBoot.JobId == bootJob and existingBoot.Loading then
+    return existingBoot.Hub or bootEnv.ENDHUB
+end
+local existingHub = bootEnv.ENDHUB
+if existingHub and existingHub.JobId == bootJob and existingHub.State
+    and existingHub.State.Ready and not existingHub.State.Unloaded then
+    return existingHub
+end
+local boot = {JobId = bootJob, Loading = true}
+bootEnv.ENDHUB_BOOT = boot
+bootEnv.ENDHUB_WORK_LOADING = true
+local function buildWork()
+while not game:IsLoaded() or not game:GetService("Players").LocalPlayer do task.wait(0.1) end
 local lootStatusModule = [=========[
 return function(H)
     local ENV = getgenv()
@@ -1021,13 +1039,16 @@ return function(H)
         changed(i + 1)
     end})
     group:AddButton({Text = 'Save route and wait time', Func = save})
-    group:AddLabel('Points are saved per map. Visit each location and add it. The route loops in order after nearby matching loot is collected.', true)
+    group:AddLabel('Points are saved per map. The continuous cycle hops after the last point; otherwise the route loops.', true)
     refresh(1)
     local previousStart = F.Start
     function F.Start()
         -- Preserve the next route point across a sale and return to the collection area.
-        waiting = false
-        waitUntil = 0
+        -- A brief role check also preserves an unfinished streaming wait.
+        if not waiting or tick() >= waitUntil then
+            waiting = false
+            waitUntil = 0
+        end
         return previousStart()
     end
     local previousStep = F.Step
@@ -1048,6 +1069,7 @@ return function(H)
             waiting = false
         end
         if F.Allowed(H.State.CurrentTarget) or F.Nearest() then return previousStep(dt) end
+        if index == #route and H.ServerCycle and H.ServerCycle.OnLootComplete() then return end
         F.ClearTarget()
         index = index % #route + 1
         local p = route[index]
@@ -2265,6 +2287,12 @@ local ok, result = pcall(function()
     local bossDetection, bossError = wrappedCompile(bossDetectionModule, 'EndHub boss detection')
     assert(bossDetection, bossError)
     bossDetection()(hub)
+    -- Install last so route/sell overrides cannot bypass the player checks.
+    local cycleSource = game:HttpGet(hub.Repo .. 'modules/server_cycle.lua?v=' .. tostring(os.time()))
+    local cycle, cycleError = wrappedCompile(cycleSource, 'EndHub server cycle')
+    assert(cycle, cycleError)
+    cycle()(hub)
+    hub.State.Ready = true
     return hub
 end)
 if not ok then
@@ -2272,3 +2300,27 @@ if not ok then
     error(result, 0)
 end
 return result
+end
+
+local bootOK, hub = pcall(function()
+    local loaded = buildWork()
+    loaded.ServerCycle.Bootstrap()
+    return loaded
+end)
+bootEnv.ENDHUB_WORK_LOADING = nil
+boot.Loading = false
+if not bootOK then
+    local partial = bootEnv.ENDHUB
+    if partial then
+        if partial.Unload then pcall(function() partial:Unload() end) end
+        if partial.State then partial.State.Unloaded = true partial.State.Running = false end
+        for _, connection in ipairs(partial.Connections or {}) do
+            pcall(function() connection:Disconnect() end)
+        end
+        if bootEnv.ENDHUB == partial then bootEnv.ENDHUB = nil end
+    end
+    bootEnv.ENDHUB_BOOT = nil -- A failed download must remain retryable.
+    error(hub, 0)
+end
+boot.Hub = hub
+return hub

@@ -5,6 +5,7 @@ if ENV.ENDHUB and ENV.ENDHUB.Unload then
 end
 
 local H = {
+    JobId = tostring(game.JobId),
     Repo = "https://raw.githubusercontent.com/3213123213fefefefe/endhub/main/",
     Connections = {},
     Drawings = {},
@@ -77,6 +78,7 @@ local H = {
         ESPShowEquipped = false,
     },
     State = {
+        Ready = false,
         Running = false,
         Unloaded = false,
         Status = "IDLE",
@@ -189,6 +191,14 @@ function H:Unload()
 
     if ENV.ENDHUB == self then ENV.ENDHUB = nil end
     print("[EndHub] unloaded")
+end
+
+-- The Work loader installs its existing extensions first, then the cycle gates.
+-- Direct users of EndHub.lua still receive the same integration.
+if not ENV.ENDHUB_WORK_LOADING then
+    loadModule("modules/server_cycle.lua")
+    H.State.Ready = true
+    H.ServerCycle.Bootstrap()
 end
 
 print("[EndHub] COMPLETE modular build loaded")
