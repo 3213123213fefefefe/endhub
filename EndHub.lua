@@ -37,10 +37,6 @@ local H = {
         WalkSpeed = 16,
         SpeedMultiplier = 1,
         SpeedModifierEnabled = false,
-        Desync = false,
-        DesyncOffset = 2.5,
-        DesyncRate = 10,
-        NoKillbrick = false,
 
         BossBotEnabled = false,
         BossTargetName = "AUTO: Highest MaxHealth",
@@ -95,7 +91,6 @@ local H = {
         InventoryMax = 0,
         InventoryPercent = 0,
         FarmSellPhase = "FARM",
-        NoKillbrickMatches = 0,
 
         BossStatus = "IDLE",
         BossTarget = "None",
@@ -138,7 +133,6 @@ local order = {
     "modules/extras.lua",
 }
 
-
 function H:Unload()
     if self.State.Unloaded then return end
     if self.Extras then self.Extras.Close() end
@@ -154,30 +148,22 @@ function H:Unload()
     self.Config.SpeedModifierEnabled = false
     self.Config.BossBotEnabled = false
     self.Config.MobFarmEnabled = false
-    self.Config.NoKillbrick = false
 
     if self.Farm and self.Farm.Stop then pcall(self.Farm.Stop) end
     if self.Sell and self.Sell.Stop then pcall(self.Sell.Stop) end
     if self.Boss and self.Boss.Stop then pcall(self.Boss.Stop) end
     if self.MobFarm and self.MobFarm.Stop then pcall(self.MobFarm.Stop) end
-    if self.NoKillbrick and self.NoKillbrick.Reset then pcall(self.NoKillbrick.Reset) end
     if self.PlayerTools and self.PlayerTools.Reset then pcall(self.PlayerTools.Reset) end
     if self.Movement and self.Movement.Reset then pcall(self.Movement.Reset) end
     if self.Visuals and self.Visuals.Reset then pcall(self.Visuals.Reset) end
-    if self.Legacy and self.Legacy.Reset then pcall(self.Legacy.Reset) end
 
     if self.UI and self.UI.Library and self.UI.Library.Unload and not self.UI.Library.Unloaded then
         pcall(function() self.UI.Library:Unload() end)
     end
 
-    for _, c in ipairs(self.Connections) do
-        pcall(function() c:Disconnect() end)
-    end
+    for _, c in ipairs(self.Connections) do pcall(function() c:Disconnect() end) end
     table.clear(self.Connections)
-
-    for _, d in ipairs(self.Drawings) do
-        pcall(function() d.Visible = false d:Remove() end)
-    end
+    for _, d in ipairs(self.Drawings) do pcall(function() d.Visible = false d:Remove() end) end
     table.clear(self.Drawings)
 
     if ENV.ENDHUB == self then ENV.ENDHUB = nil end
@@ -186,9 +172,6 @@ end
 
 for _, path in ipairs(order) do loadModule(path) end
 
-
--- The Work loader installs its existing extensions first, then the cycle gates.
--- Direct users of EndHub.lua still receive the same integration.
 if not ENV.ENDHUB_WORK_LOADING then
     loadModule("modules/fps_patch.lua")
     loadModule("modules/server_cycle.lua")
@@ -196,8 +179,8 @@ if not ENV.ENDHUB_WORK_LOADING then
     loadModule("modules/server_hop_quality_patch.lua")
     H.State.Ready = true
     H.ServerCycle.Bootstrap()
+    if H.Extras then H.Extras.Open() end
 end
 
 print("[EndHub] COMPLETE modular build loaded")
 return H
-
