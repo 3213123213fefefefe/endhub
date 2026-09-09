@@ -154,6 +154,26 @@ end
 
 local methods = {
     {"ACTIVATE", activateMethod},
+    {"CONNECTIONS", function(b)
+        if type(getconnections) ~= "function" then return false end
+        for _, signalName in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down"}) do
+            local ok, connections = pcall(getconnections, b[signalName])
+            if ok then
+                for _, connection in ipairs(connections or {}) do
+                    local callback = connection.Function or connection.Callback
+                    if type(callback) == "function" then
+                        pcall(callback)
+                        return true
+                    end
+                    if type(connection.Fire) == "function" then
+                        pcall(function() connection:Fire() end)
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end},
     {"SIGNAL ACTIVATED", function(b) return fireSignal(b, "Activated") end},
     {"SIGNAL CLICK", function(b) return fireSignal(b, "MouseButton1Click") end},
     {"MOUSE", mouse},
@@ -191,9 +211,9 @@ end
 
 task.spawn(function()
     while driver.Alive do
-        -- Before EndHub finishes loading this loop drives the menu alone.
-        -- Afterwards ServerCycle calls Step, avoiding two competing loops.
-        if not driver.Managed then pcall(driver.Step) end
+        -- This must remain independent: ServerCycle can still be waiting while
+        -- the player is on Endure / save-slot / current-server screens.
+        pcall(driver.Step)
         task.wait(0.20)
     end
 end)

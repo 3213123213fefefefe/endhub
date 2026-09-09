@@ -20,7 +20,6 @@ local hub = run("compat_loader.lua")
 -- This prevents two different routines from clicking the same menu.
 if type(hub) == "table" and hub.ServerCycle and menuDriver then
     local normalMenuStep = hub.ServerCycle.MenuStep
-    menuDriver.Managed = true
     hub.ServerCycle.MenuStep = function()
         local hasMenu = menuDriver.Step()
         if hasMenu then return true end
