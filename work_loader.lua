@@ -124,6 +124,7 @@ return function(H)
         Text = "Farm -> Full -> Sell -> Resume",
         Default = H.Config.AutoFarmSell,
         Callback = function(v)
+            if H.ServerCycle and H.ServerCycle.SyncingUI then return end
             H.Config.AutoFarmSell = v
             H.State.FarmSellPhase = "FARM"
             if v then
@@ -1039,7 +1040,7 @@ return function(H)
         changed(i + 1)
     end})
     group:AddButton({Text = 'Save route and wait time', Func = save})
-    group:AddLabel('Points are saved per map. The continuous cycle hops after the last point; otherwise the route loops.', true)
+    group:AddLabel('Points are saved per map. The cycle repeats the full route while collecting or detecting matching items; hops only after a complete empty lap.', true)
     refresh(1)
     local previousStart = F.Start
     function F.Start()

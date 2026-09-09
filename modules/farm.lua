@@ -252,6 +252,7 @@ return function(H)
                     if not counted[before] then
                         counted[before] = true
                         H.State.Collected = H.State.Collected + 1
+                        H.State.LootPickupSerial = (H.State.LootPickupSerial or 0) + 1
                     end
                 else
                     F.Ignore(before, 2)
@@ -267,6 +268,7 @@ return function(H)
             if obj == H.State.CurrentTarget and not counted[obj] then
                 counted[obj] = true
                 H.State.Collected = H.State.Collected + 1
+                        H.State.LootPickupSerial = (H.State.LootPickupSerial or 0) + 1
                 H.State.Status = "COLLECTED"
                 F.ClearTarget()
             end
@@ -293,3 +295,4 @@ return function(H)
         end
     end)
 end
+

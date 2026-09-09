@@ -15,8 +15,8 @@ return function(H)
         Status = "STOPPED", IdleSince = nil, StartedAt = 0,
     }
     H.ServerCycle = R
-    if cfg.ServerCycleEnabled == nil then cfg.ServerCycleEnabled = true end
-    if cfg.ServerCycleAutoSell == nil then cfg.ServerCycleAutoSell = true end
+    cfg.ServerCycleEnabled = true -- Always start on a fresh load, regardless of saved OFF state.
+    cfg.ServerCycleAutoSell = true
     cfg.ServerCycleIdleSeconds = math.max(10, tonumber(cfg.ServerCycleIdleSeconds) or 30)
     cfg.ServerCycleMaxSeconds = math.max(0, tonumber(cfg.ServerCycleMaxSeconds) or 0)
 
@@ -119,7 +119,7 @@ return function(H)
 local ok, data = pcall(function()
     return game:GetService("TeleportService"):GetTeleportSetting(%q)
 end)
-if ok and type(data) == "table" and data.Enabled == false then return end
+-- Loading again always starts a fresh cycle, even if the previous session was stopped.
 local source = game:HttpGet(%q .. "?v=" .. tostring(os.time()))
 local fn, err = loadstring(source)
 assert(fn, err)
@@ -224,10 +224,33 @@ fn()
     H.ServerHop = H.ServerHop or {}
     if not H.ServerHop.Request then H.ServerHop.Request = R.RequestHop end
     function R.OnLootComplete()
-        if R.Enabled and R.Allowed then return R.RequestHop("LOOT ROUTE COMPLETE") end
+        if R.Enabled and R.Allowed then
+            -- Let the existing delayed pickup confirmation finish before judging the lap.
+            if tick() - (H.State.LastPickup or -math.huge) < 0.6 then return true end
+            -- Count also checks still-visible drops, including temporarily ignored targets.
+            if H.Farm.Count then H.Farm.Count() end
+            local sawMatching = R.RouteSawMatching
+            R.RouteSawMatching = false
+            local collected = H.State.LootPickupSerial or 0
+            local previous = R.RoutePickupStart or 0
+            R.RoutePickupStart = collected
+            if collected > previous or sawMatching then
+                status("ROUTE COLLECTED/DETECTED MATCHING LOOT | STARTING ANOTHER LAP")
+                return false
+            end
+            return R.RequestHop("FULL ROUTE WITHOUT PICKUP OR MATCHING DETECTION")
+        end
         return false
     end
 
+    -- The final Allowed implementation includes the existing name/rarity filters.
+    -- Remember detections even if pickup fails or the target is temporarily ignored.
+    local oldAllowed = H.Farm.Allowed
+    function H.Farm.Allowed(...)
+        local allowed = oldAllowed(...)
+        if allowed and R.Enabled and R.Allowed then R.RouteSawMatching = true end
+        return allowed
+    end
     local oldStart, oldStep = H.Farm.Start, H.Farm.Step
     function H.Farm.Start(...)
         if R.Enabled and not R.Allowed then return false end
@@ -255,6 +278,12 @@ fn()
         if not C.Root() then status("WAIT CHARACTER") return end
         R.Allowed, R.IdleSince = true, nil
         cfg.AutoFarmSell = cfg.ServerCycleAutoSell
+        local toggle = H.UI and H.UI.Toggles and H.UI.Toggles.EH_FarmSell
+        if toggle and toggle.SetValue then
+            R.SyncingUI = true
+            pcall(function() toggle:SetValue(cfg.AutoFarmSell) end)
+            R.SyncingUI = false
+        end
         local paused = R.PausedWork
         R.PausedWork = nil
         if paused and paused.Phase == "SELL" and cfg.ServerCycleAutoSell and H.Sell then
@@ -405,22 +434,7 @@ fn()
         while not R.Closed and not H.State.Unloaded do
             if alive() and not R.Hopping then
                 tryResume()
-                if R.Allowed and H.State.Running and not cfg.AutoSell and H.State.FarmSellPhase ~= "SELL" then
-                    local route = H.GetTrinketRouteStatus and H.GetTrinketRouteStatus()
-                    if route and cfg.TrinketExplore and route.Total > 0 then
-                        R.IdleSince = nil -- Route completion comes from the route itself.
-                    elseif C.Root() and C.DropsFolder() and not H.Farm.Nearest() and not H.State.CurrentTarget then
-                        R.IdleSince = R.IdleSince or tick()
-                        if tick() - R.IdleSince >= cfg.ServerCycleIdleSeconds then R.RequestHop("NO MATCHING LOOT") end
-                    else
-                        R.IdleSince = nil
-                    end
-                    if cfg.ServerCycleMaxSeconds > 0 and tick() - R.StartedAt >= cfg.ServerCycleMaxSeconds then
-                        R.RequestHop("SERVER TIME LIMIT")
-                    end
-                else
-                    R.IdleSince = nil
-                end
+                -- Automatic loot hops are decided only at the end of a complete route.
             end
             task.wait(0.5)
         end
@@ -434,10 +448,8 @@ fn()
         group:AddButton({Text = "SERVERHOP NOW", Func = function() R.RequestHop("manual") end})
         group:AddToggle("EH_CycleAutoSell", {Text = "Sell when full", Default = cfg.ServerCycleAutoSell,
             Callback = function(value) cfg.ServerCycleAutoSell = value if R.Allowed then cfg.AutoFarmSell = value end end})
-        group:AddSlider("EH_CycleIdle", {Text = "Hop after no loot", Default = cfg.ServerCycleIdleSeconds,
-            Min = 10, Max = 120, Rounding = 0, Suffix = " s", Callback = function(value) cfg.ServerCycleIdleSeconds = value end})
         group:AddLabel("EH_CycleStatus", {Text = "Cycle: waiting", DoesWrap = true})
-        group:AddLabel("Checks group 36025827 before looting and on new arrivals. Member is ignored. Stop also disables automatic resume.", true)
+        group:AddLabel("Checks group 36025827 before looting and on new arrivals. Member is ignored. Stop pauses this session. Every fresh load starts automatically. A saved route is required for automatic loot hops.", true)
         task.spawn(function()
             while not R.Closed and not H.State.Unloaded do
                 if options and options.EH_CycleStatus then
@@ -448,11 +460,8 @@ fn()
         end)
     end
     function R.Bootstrap()
-        local ok, data = pcall(function() return Teleports:GetTeleportSetting(SETTING) end)
-        if ok and type(data) == "table" and data.PlaceId == PLACE and type(data.Enabled) == "boolean" then
-            cfg.ServerCycleEnabled = data.Enabled
-        end
-        if cfg.ServerCycleEnabled then R.Start() end
+        cfg.ServerCycleEnabled, cfg.ServerCycleAutoSell = true, true
+        R.Start()
     end
     return R
 end

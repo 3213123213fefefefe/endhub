@@ -151,7 +151,7 @@ local function context(options)
         Stop = function() H.State.Running = false H.State.CurrentTarget = nil end,
         Step = function() t.moves = t.moves + 1 end,
         Nearest = function() return t.loot and {} or nil end,
-        Allowed = function() return false end,
+        Allowed = function(obj) return obj ~= nil and t.detected == true end,
         ClearTarget = function() H.State.CurrentTarget = nil end,
     }
     H.Sell = {Runtime = {}, Stop = function() H.Config.AutoSell = false H.Sell.Runtime.SellerTrip = nil end,
@@ -294,12 +294,12 @@ test("pagination skips current, full and recently visited servers", function()
     equal(t.teleports[1], "available")
 end)
 
-test("idle condition waits for selling to finish; route completion hops only after its final point", function()
+test("only a complete empty lap hops; collecting repeats the route", function()
     local t = context({config = {ServerCycleIdleSeconds = 10}})
     t.R.Bootstrap(); t.advance(15); equal(#t.teleports, 0)
     t.loot = false; t.H.State.FarmSellPhase = "SELL"
     t.advance(15); equal(#t.teleports, 0)
-    t.H.State.FarmSellPhase = "FARM"; t.advance(11); equal(#t.teleports, 1)
+    t.H.State.FarmSellPhase = "FARM"; t.advance(120); equal(#t.teleports, 0)
     t = context({route = true})
     t.loot = false
     t.H.Farm.Step(); equal(t.routeTeleports, 0)
@@ -309,11 +309,28 @@ test("idle condition waits for selling to finish; route completion hops only aft
     equal(t.routeTeleports, 1) -- A Member check cannot skip the remaining route wait.
     t.H.Farm.Step(); equal(#t.teleports, 0)
     t.advance(1.1); t.H.Farm.Step(); equal(t.routeTeleports, 2)
+    t.H.State.LootPickupSerial = 1
     t.advance(1.1); t.H.Farm.Step(); t.advance(1)
-    equal(#t.teleports, 1); equal(t.routeTeleports, 2)
+    equal(#t.teleports, 0); equal(t.routeTeleports, 3)
+    t.H.Farm.Step(); equal(t.routeTeleports, 4)
+    t.advance(1.1); t.H.Farm.Step(); t.advance(1)
+    equal(#t.teleports, 1); equal(t.routeTeleports, 4)
 end)
 
-test("new job resumes intent but rechecks players; stop cancels queued continuation", function()
+test("matching detections keep the server even when pickup fails", function()
+    local t = context()
+    t.R.Bootstrap(); t.advance(1)
+    t.detected = true
+    assert(t.H.Farm.Allowed({}))
+    t.detected = false -- The detection remains remembered for this entire lap.
+    equal(t.R.OnLootComplete(), false); equal(#t.teleports, 0)
+    equal(t.R.OnLootComplete(), true); t.advance(1); equal(#t.teleports, 1)
+    t = context(); t.R.Bootstrap(); t.advance(1)
+    t.detected = false; equal(t.H.Farm.Allowed({}), false)
+    equal(t.R.OnLootComplete(), true); t.advance(1); equal(#t.teleports, 1)
+end)
+
+test("new load forces Play and farm-sell ON even after Stop or saved OFF", function()
     local t = context()
     t.R.Bootstrap(); t.advance(1)
     local settings, queued = t.settings, t.queued[1]
@@ -321,9 +338,14 @@ test("new job resumes intent but rechecks players; stop cancels queued continuat
     t.R.Bootstrap(); equal(t.starts, 0); t.advance(1)
     equal(t.starts, 1); equal(t.queries[1], 1); equal(#t.queued, 1)
     t.R.Stop()
-    -- The actual queued source must not even download the loader after Stop.
-    game.HttpGet = function() error("cancelled queue downloaded the loader") end
+    local bootCalls = 0
+    game.HttpGet = function() return "loader" end
+    loadstring = function() return function() bootCalls = bootCalls + 1 end end
     assert(load(queued))()
+    equal(bootCalls, 1)
+    t.H.Config.ServerCycleEnabled, t.H.Config.ServerCycleAutoSell = false, false
+    t.R.Bootstrap(); t.advance(1)
+    assert(t.H.Config.AutoFarmSell); assert(t.H.State.Running)
     t.H:Unload()
     for _, c in ipairs(t.H.Connections) do equal(c.Connected, false) end
     t.advance(1); equal(t.H.State.Running, false)
