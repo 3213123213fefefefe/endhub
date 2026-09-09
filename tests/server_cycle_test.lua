@@ -399,8 +399,11 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     local play = node("TextButton", "Endure", screen)
     local slots = node("Frame", nil, screen); slots.Visible = false
     local one = node("Frame", nil, slots)
-    node("TextLabel", "Slot 1", one)
+    local titleFrame = node("Frame", nil, one)
+    local slotTitle = node("TextLabel", "Slot 1", titleFrame)
+    slotTitle.AbsolutePosition, slotTitle.AbsoluteSize = {X = 100, Y = 100}, {X = 200, Y = 20}
     local enter = node("TextButton", "Endure", one)
+    enter.AbsolutePosition, enter.AbsoluteSize = {X = 100, Y = 400}, {X = 200, Y = 30}
     local delete = node("TextButton", "Deletar", one)
     local two = node("Frame", nil, slots)
     node("TextLabel", "Slot 2", two); node("TextButton", "Endure", two)

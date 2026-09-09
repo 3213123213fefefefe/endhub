@@ -332,7 +332,7 @@ fn()
                 node = node.Parent
             end
         end
-        local play, current, slotOne = {}, nil, nil
+        local play, current, slotOne, slotLabel = {}, nil, nil, nil
         local sawMenu, sawSlots = false, false
         for _, obj in ipairs(pg:GetDescendants()) do
             if visible(obj) then
@@ -343,7 +343,7 @@ fn()
                     if button then play[#play + 1] = button end
                 elseif text:match("^slot%s*%d+$") then
                     sawMenu, sawSlots = true, true
-                    if text:match("^slot%s*1$") then slotOne = obj.Parent end
+                    if text:match("^slot%s*1$") then slotOne, slotLabel = obj.Parent, obj end
                 elseif text:find("current server", 1, true) or text:find("servidor atual", 1, true) then
                     sawMenu = true
                     current = buttonFor(obj)
@@ -373,6 +373,22 @@ fn()
                 if not sawSlots or (slotOne and candidate:IsDescendantOf(slotOne)) then
                     target = candidate
                     break
+                end
+            end
+        end
+        if not target and sawSlots and slotLabel then
+            -- The Endure button can be a sibling below the card, not a child
+            -- of its title. Match the Slot 1 column using live GUI positions.
+            local p, size = slotLabel.AbsolutePosition, slotLabel.AbsoluteSize
+            if p and size then
+                local centerX, best = p.X + size.X / 2, math.huge
+                for _, candidate in ipairs(play) do
+                    local cp, cs = candidate.AbsolutePosition, candidate.AbsoluteSize
+                    if cp and cs and cp.Y >= p.Y + size.Y
+                        and centerX >= cp.X and centerX <= cp.X + cs.X then
+                        local distance = cp.Y - p.Y
+                        if distance < best then target, best = candidate, distance end
+                    end
                 end
             end
         end
