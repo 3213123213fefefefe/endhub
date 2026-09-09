@@ -2,7 +2,7 @@
 -- job before the first yield, and reuse the live instance on repeated execution.
 local bootEnv = getgenv()
 local bootJob = tostring(game.JobId)
-local buildVersion = "menu-server-4"
+local buildVersion = "menu-server-5"
 local existingBoot = bootEnv.ENDHUB_BOOT
 if existingBoot and existingBoot.JobId == bootJob and existingBoot.Loading then
     return existingBoot.Hub or bootEnv.ENDHUB

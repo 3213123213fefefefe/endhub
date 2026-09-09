@@ -416,6 +416,26 @@ fn()
         local retrySameTarget = R.LastMenuTarget == target
         R.LastMenuTarget = target
         local ok, err = pcall(function()
+            if target == current then
+                assert(target:IsA("GuiButton"), "current server has no resolved ImageButton")
+                assert(type(getconnections) == "function" and type(firesignal) == "function",
+                    "direct server activation unavailable; coordinate clicks disabled")
+                local selected, counts = nil, {}
+                for _, name in ipairs({"MouseButton1Click", "Activated", "MouseButton1Down"}) do
+                    local count = #getconnections(target[name])
+                    counts[#counts + 1] = name .. "=" .. count
+                    if count > 0 and not selected then selected = name end
+                end
+                print("[EndHub Menu] server events | " .. table.concat(counts, " | "))
+                assert(selected, "no connected server click event; coordinate clicks disabled")
+                print("[EndHub Menu] direct server event=" .. selected)
+                if selected == "Activated" then firesignal(target.Activated, nil, 1)
+                elseif selected == "MouseButton1Down" then
+                    local p, size = target.AbsolutePosition, target.AbsoluteSize
+                    firesignal(target.MouseButton1Down, p.X + size.X / 2, p.Y + size.Y / 2)
+                else firesignal(target.MouseButton1Click) end
+                return
+            end
             -- Use one connected signal, never all of them (which can enter twice).
             if target ~= current and target:IsA("GuiButton") and not retrySameTarget
                 and type(getconnections) == "function" and type(firesignal) == "function" then

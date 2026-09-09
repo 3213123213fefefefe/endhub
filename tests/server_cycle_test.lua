@@ -421,10 +421,8 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     local oldGetService = game.GetService
     game.GetService = function(self, name)
         if name == "GuiService" then return {GetGuiInset = function() return {X = 0, Y = 36} end} end
-        if name == "VirtualInputManager" then return {SendMouseButtonEvent = function(_, x, y, _, down)
-            equal(x, 650); equal(y, 415)
-            if down then t.mouseDownAt = tick() else assert(tick() - t.mouseDownAt >= 0.079) end
-            if not down then screen.Enabled = false end
+        if name == "VirtualInputManager" then return {SendMouseButtonEvent = function()
+            error("server selection must never use screen coordinates")
         end} end
         return oldGetService(self, name)
     end
@@ -440,7 +438,7 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     end
     t.R.Bootstrap(); t.advance(1); equal(t.starts, 0)
     t.advance(2); equal(t.starts, 0)
-    t.advance(5); equal(clicks, 2); equal(t.starts, 1); assert(t.R.MenuEntered)
+    t.advance(5); equal(clicks, 3); equal(t.starts, 1); assert(t.R.MenuEntered)
     screen.Enabled = true; play.Visible = true
     t.advance(0.5); equal(t.H.State.Running, false)
     equal(t.R.MenuEntered, false)
