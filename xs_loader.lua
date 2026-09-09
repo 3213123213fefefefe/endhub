@@ -13,23 +13,12 @@ ENV.ENDHUB, ENV.ENDHUB_BOOT, ENV.ENDHUB_WORK_LOADING = nil, nil, nil
 task.wait(0.15)
 
 local seed = run("solara_normal_route_seed.lua")
-local menuDriver = run("xs_menu_entry.lua")
 local hub = run("compat_loader.lua")
 
--- Once the regular controller exists, make the Solara driver authoritative.
--- This prevents two different routines from clicking the same menu.
-if type(hub) == "table" and hub.ServerCycle and menuDriver then
-    local normalMenuStep = hub.ServerCycle.MenuStep
-    hub.ServerCycle.MenuStep = function()
-        local hasMenu = menuDriver.Step()
-        if hasMenu then return true end
-        -- Keep the normal in-game/menu-clear confirmation but do not let it
-        -- click another GUI while the external driver owns a visible menu.
-        if type(normalMenuStep) == "function" then return normalMenuStep() end
-        return false
-    end
-    print("[EndHub Solara] staged menu driver attached")
-end
+-- The normal EndHub already installs menu_first_screen_patch.lua. Keep its
+-- exact Endure -> Slot 1 -> Current Server implementation intact on Solara.
+-- Loading a second driver here used to replace MenuStep and fight that patch.
+print("[EndHub Solara] using main Endure/menu controller")
 
 if type(hub) == "table" and type(seed) == "table" and type(seed.Route) == "table" then
     local placeKey = "125503525638054"
