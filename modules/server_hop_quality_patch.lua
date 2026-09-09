@@ -9,7 +9,10 @@ return function(H)
     local Teleports = game:GetService("TeleportService")
     local PLACE = game.PlaceId
     local JOB = tostring(game.JobId)
+    local USER = tostring(Player.UserId)
     local visitedFile = H.Persistence and H.Persistence.VisitedFile or "EndHub/serverhop_visited.json"
+    local claimFile = "EndHub/serverhop_claims_" .. tostring(PLACE) .. ".json"
+    local CLAIM_TTL = 35
 
     cfg.ServerHopVisitedResetSeconds = math.clamp(tonumber(cfg.ServerHopVisitedResetSeconds) or 480, 300, 600)
     cfg.ServerHopPingTarget = math.max(20, tonumber(cfg.ServerHopPingTarget) or 120)
@@ -59,10 +62,79 @@ return function(H)
         saveVisits(visits)
     end
 
-    -- Query full pages and filter capacity locally. Some Roblox responses have
-    -- returned an empty candidate set with excludeFullGames=true even while the
-    -- game can still matchmake another instance. Scanning both sort directions
-    -- also avoids depending on only one edge of a large server list.
+    -- Local clients normally share the executor workspace. This tiny claim file
+    -- lets them reserve different destinations without merging account profiles.
+    local function readClaims()
+        local claims = C.ReadJson(claimFile)
+        return type(claims) == "table" and claims or {}
+    end
+
+    local function pruneClaims(claims)
+        local now = os.time()
+        local changed = false
+        for id, row in pairs(claims) do
+            if type(row) ~= "table" or type(row.t) ~= "number" or now - row.t >= CLAIM_TTL then
+                claims[id] = nil
+                changed = true
+            end
+        end
+        if changed then C.WriteJson(claimFile, claims) end
+        return claims
+    end
+
+    local function claimedByOther(id, claims)
+        local row = claims and claims[tostring(id)]
+        return type(row) == "table" and tostring(row.user or "") ~= USER
+    end
+
+    local function refreshPresence()
+        if JOB == "" then return end
+        local claims = pruneClaims(readClaims())
+        claims[JOB] = {user = USER, t = os.time()}
+        C.WriteJson(claimFile, claims)
+    end
+
+    local function releaseClaim(id)
+        if not id then return end
+        local claims = pruneClaims(readClaims())
+        local row = claims[tostring(id)]
+        if type(row) == "table" and tostring(row.user or "") == USER then
+            claims[tostring(id)] = nil
+            C.WriteJson(claimFile, claims)
+        end
+    end
+
+    local function claimServer(id)
+        id = tostring(id or "")
+        if id == "" then return false, "invalid-server" end
+
+        local claims = pruneClaims(readClaims())
+        local existing = claims[id]
+        if type(existing) == "table" and tostring(existing.user or "") ~= USER then
+            return false, tostring(existing.user or "other")
+        end
+
+        claims[id] = {user = USER, t = os.time()}
+        C.WriteJson(claimFile, claims)
+
+        -- Resolve near-simultaneous writes by re-reading after a short settle.
+        task.wait(0.12 + ((tonumber(Player.UserId) or 0) % 5) * 0.025)
+        local verify = pruneClaims(readClaims())
+        local owner = verify[id]
+        if type(owner) == "table" and tostring(owner.user or "") == USER then
+            return true
+        end
+        return false, type(owner) == "table" and tostring(owner.user or "other") or "claim-lost"
+    end
+
+    refreshPresence()
+    task.spawn(function()
+        while not H.State.Unloaded do
+            task.wait(10)
+            if alive() then pcall(refreshPresence) end
+        end
+    end)
+
     local function getPage(sortOrder, cursor, generation)
         if not alive(generation) then return nil, "cancelled" end
         local url = "https://games.roblox.com/v1/games/" .. tostring(PLACE)
@@ -107,38 +179,43 @@ return function(H)
 
     local function scanText(stats)
         if not stats then return "scan=?" end
-        return string.format("rows=%d open=%d fresh=%d repeat=%d current=%d",
+        return string.format("rows=%d open=%d fresh=%d repeat=%d current=%d claimed=%d",
             stats.Rows or 0, stats.Open or 0, stats.Fresh or 0,
-            stats.Repeated or 0, stats.Current or 0)
+            stats.Repeated or 0, stats.Current or 0, stats.Claimed or 0)
     end
 
     local function chooseFromSorted(rows)
         if #rows == 0 then return nil end
 
-        -- Multiple EndHub clients often hop at the same moment. Spreading each
-        -- account across the first few low-ping choices avoids both accounts
-        -- racing for the exact same last slot while still preferring good ping.
+        -- Prefer good ping, but use a broader top pool so local accounts do not
+        -- deterministically converge on the same one or two servers.
         local bestPing = tonumber(rows[1].ping)
-        local pool = 1
-        for i = 2, math.min(#rows, 5) do
-            local p = tonumber(rows[i].ping)
-            if bestPing and p and p <= math.max(cfg.ServerHopPingTarget, bestPing + 35) then
-                pool = i
-            elseif not bestPing and i <= 3 then
-                pool = i
-            else
-                break
+        local pool = math.min(#rows, 8)
+        if bestPing then
+            local limited = 1
+            for i = 2, pool do
+                local p = tonumber(rows[i].ping)
+                if p and p <= math.max(cfg.ServerHopPingTarget + 40, bestPing + 70) then
+                    limited = i
+                else
+                    break
+                end
             end
+            pool = math.max(1, limited)
         end
-        local index = ((tonumber(Player.UserId) or 0) % pool) + 1
+
+        local uid = tonumber(Player.UserId) or 0
+        local mixed = math.floor(uid / 4) + math.floor(uid / 97) * 3 + math.floor(uid / 997) * 7
+        local index = (mixed % pool) + 1
         return rows[index]
     end
 
     local function chooseServer(generation)
         local visits = pruneVisits(readVisits())
+        local claims = pruneClaims(readClaims())
         local fresh, repeated = {}, {}
         local seen = {}
-        local stats = {Rows = 0, Open = 0, Fresh = 0, Repeated = 0, Current = 0, Pages = 0}
+        local stats = {Rows = 0, Open = 0, Fresh = 0, Repeated = 0, Current = 0, Claimed = 0, Pages = 0}
 
         for _, sortOrder in ipairs({"Asc", "Desc"}) do
             local cursor = nil
@@ -159,16 +236,20 @@ return function(H)
                             stats.Current = stats.Current + 1
                         elseif playing and maxPlayers and maxPlayers > 0 and playing < maxPlayers then
                             stats.Open = stats.Open + 1
-                            local row = {
-                                id = id,
-                                ping = tonumber(server.ping),
-                                fps = tonumber(server.fps),
-                                playing = playing,
-                                maxPlayers = maxPlayers,
-                                lastVisit = visits[visitKey(id)],
-                            }
-                            if row.lastVisit then repeated[#repeated + 1] = row
-                            else fresh[#fresh + 1] = row end
+                            if claimedByOther(id, claims) then
+                                stats.Claimed = stats.Claimed + 1
+                            else
+                                local row = {
+                                    id = id,
+                                    ping = tonumber(server.ping),
+                                    fps = tonumber(server.fps),
+                                    playing = playing,
+                                    maxPlayers = maxPlayers,
+                                    lastVisit = visits[visitKey(id)],
+                                }
+                                if row.lastVisit then repeated[#repeated + 1] = row
+                                else fresh[#fresh + 1] = row end
+                            end
                         end
                     end
                 end
@@ -181,21 +262,21 @@ return function(H)
         stats.Fresh = #fresh
         stats.Repeated = #repeated
         R.ServerHopScan = stats
-        print("[EndHub HopScan] user=" .. tostring(Player.UserId) .. " | " .. scanText(stats))
+        print("[EndHub HopScan] user=" .. USER .. " | " .. scanText(stats))
 
         table.sort(fresh, better)
         local picked = chooseFromSorted(fresh)
         if picked then return picked, visits, false, nil, stats end
 
-        -- Do not repeat during the TTL unless every open public candidate is in
-        -- history. Then choose the least-recently visited server as a fallback.
         table.sort(repeated, function(a, b)
             if a.lastVisit ~= b.lastVisit then return (a.lastVisit or 0) < (b.lastVisit or 0) end
             return better(a, b)
         end)
         if #repeated > 0 then return repeated[1], visits, true, nil, stats end
 
-        if stats.Rows == 0 then
+        if stats.Open > 0 and stats.Claimed >= stats.Open then
+            return nil, visits, false, "ALL OPEN SERVERS CLAIMED LOCALLY", stats
+        elseif stats.Rows == 0 then
             return nil, visits, false, "PUBLIC SERVER LIST EMPTY", stats
         elseif stats.Current > 0 and stats.Rows == stats.Current then
             return nil, visits, false, "ONLY CURRENT PUBLIC SERVER VISIBLE", stats
@@ -213,6 +294,11 @@ return function(H)
     end
 
     local function directTeleport(selected, visits, repeated, generation, attempt)
+        local claimed, owner = claimServer(selected.id)
+        if not claimed then
+            return false, "SERVER CLAIM COLLISION WITH LOCAL BOT " .. tostring(owner)
+        end
+
         R.HopFailed, R.HopError = false, nil
         R.TargetServer = selected.id
         markVisited(visits, selected.id)
@@ -229,18 +315,16 @@ return function(H)
         if not ok then
             R.HopFailed = true
             R.HopError = tostring(errorMessage)
+            releaseClaim(selected.id)
             return false, R.HopError
         end
 
         if waitForTeleport(generation, 30) then return true end
+        releaseClaim(selected.id)
         return false, R.HopError or "DIRECT TELEPORT NOT COMPLETED"
     end
 
     local function matchmakerTeleport(generation, attempt, reason, stats)
-        -- If the public list exposes no usable *other* instance, ask Roblox's
-        -- own matchmaker for this place instead of freezing the farm for a minute.
-        -- Ping/repeat preference cannot be guaranteed in this fallback because
-        -- Roblox chooses the destination, but it keeps the server cycle moving.
         R.HopFailed, R.HopError = false, nil
         R.TargetServer = nil
         status("MATCHMAKER FALLBACK | " .. tostring(reason) .. " | " .. scanText(stats) .. " | TRY " .. attempt)
@@ -265,7 +349,6 @@ return function(H)
         R.HopOwned = true
         R.Failed = false
 
-        -- Match the cycle's pause behavior without touching its private locals.
         R.Allowed = false
         cfg.AutoFarmSell = false
         if H.Sell then H.Sell.Stop() end
@@ -278,6 +361,7 @@ return function(H)
         end
         if R.QueueBootstrap then R.QueueBootstrap() end
 
+        refreshPresence()
         local visits = pruneVisits(readVisits())
         markVisited(visits, JOB)
 
@@ -292,6 +376,9 @@ return function(H)
                 local completed, teleportError
                 if selected then
                     completed, teleportError = directTeleport(selected, currentVisits, repeated, generation, attempt)
+                elseif err == "ALL OPEN SERVERS CLAIMED LOCALLY" then
+                    teleportError = err
+                    status("HOP WAIT: " .. err .. " | " .. scanText(stats))
                 else
                     completed, teleportError = matchmakerTeleport(generation, attempt, err or "NO DIRECT SERVER", stats)
                 end
@@ -300,7 +387,7 @@ return function(H)
 
                 if alive(generation) and attempt < 3 then
                     status("HOP RETRY: " .. tostring(lastError) .. " | RESCANNING")
-                    task.wait(4 + math.random())
+                    task.wait(3 + ((tonumber(Player.UserId) or 0) % 7) * 0.18 + math.random())
                 end
             end
 
@@ -320,6 +407,6 @@ return function(H)
     H.ServerHop.Request = R.RequestHop
     R.QualityHopPatchInstalled = true
     R.OriginalRequestHop = oldRequestHop
-    print(string.format("[EndHub] quality server hop v2 loaded | visited TTL=%ds | pages=%d x 2 orders | low-ping spread + matchmaker fallback",
-        cfg.ServerHopVisitedResetSeconds, cfg.ServerHopPages))
+    print(string.format("[EndHub] quality server hop v3 loaded | visited TTL=%ds | local claims=%ds | low-ping spread",
+        cfg.ServerHopVisitedResetSeconds, CLAIM_TTL))
 end
