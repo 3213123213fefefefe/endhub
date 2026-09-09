@@ -130,12 +130,13 @@ local order = {
     "modules/trinket_sell_fix.lua",
     "modules/trinket_rarity.lua",
     "modules/trinket_route.lua",
+    "modules/features.lua",
     "modules/extras.lua",
 }
 
 function H:Unload()
     if self.State.Unloaded then return end
-    if self.Extras then self.Extras.Close() end
+    if self.Features then self.Features.Close() end
 
     if self.PersistenceManager and self.PersistenceManager.SaveAll then
         pcall(function() self.PersistenceManager.SaveAll(true) end)
@@ -179,7 +180,7 @@ if not ENV.ENDHUB_WORK_LOADING then
     loadModule("modules/server_hop_quality_patch.lua")
     H.State.Ready = true
     H.ServerCycle.Bootstrap()
-    if H.Extras then H.Extras.Open() end
+    if H.Features then H.Features.Load() end
 end
 
 print("[EndHub] COMPLETE modular build loaded")
