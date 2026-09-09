@@ -5,7 +5,9 @@ local function run(path)
     assert(fn, err)
     return fn()
 end
-run("xs_menu_entry.lua")
-local bot = run("xeno_solara_trinket.lua")
-run("xs_embedded_route.lua")
-return bot
+
+-- Seed the owner's 28-point trinket route into the normal EndHub profile first,
+-- then boot the normal EndHub through the compatibility shim. This keeps the
+-- full regular EndHub UI/features instead of the small standalone XS window.
+run("solara_normal_route_seed.lua")
+return run("compat_loader.lua")
