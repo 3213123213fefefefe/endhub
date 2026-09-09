@@ -146,6 +146,48 @@ return function(H)
         return originalMenuStep()
     end
 
+    -- A menu/player check intentionally pauses the farm. In rare cases the
+    -- cycle reaches the allowed in-game state again while H.State.Running stays
+    -- false. Recover only after the cycle itself says it is safe to work again;
+    -- this does not skip or alter any player/menu checks.
+    local lastRecovery = 0
+    local recoveryErrorShown = false
+    task.spawn(function()
+        while not H.State.Unloaded do
+            local ok, err = pcall(function()
+                local toggle = H.UI and H.UI.Toggles and H.UI.Toggles.EH_FarmSell
+                local wantsFarm = toggle and toggle.Value == true
+                local runtime = H.Sell and H.Sell.Runtime or {}
+                local ready = type(R.CharacterReady) == "function" and R.CharacterReady()
+                local recover = R.Enabled and R.Allowed and R.MenuEntered
+                    and not R.Hopping and not R.Checking and not R.Failed
+                    and ready and wantsFarm
+                    and H.State.FarmSellPhase ~= "SELL"
+                    and not H.Config.AutoSell and not runtime.SaleBusy and not runtime.OneShot
+                    and not H.State.Running
+
+                if recover and tick() - lastRecovery >= 2 then
+                    lastRecovery = tick()
+                    H.Config.AutoFarmSell = true
+                    local started = H.Farm and H.Farm.Start and H.Farm.Start()
+                    if started ~= false then
+                        setStatus("LOOT RUNNING | SELF-RECOVERED")
+                        print("[EndHub Cycle] farm self-recovered after pause")
+                    else
+                        print("[EndHub Cycle] farm self-recovery blocked; waiting for next cycle tick")
+                    end
+                end
+            end)
+            if not ok and not recoveryErrorShown then
+                recoveryErrorShown = true
+                warn("[EndHub Cycle] farm self-recovery error: " .. tostring(err))
+            elseif ok then
+                recoveryErrorShown = false
+            end
+            task.wait(1)
+        end
+    end)
+
     R.FirstScreenPatchInstalled = true
-    print("[EndHub] first-screen patch loaded | Endure retry + direct GUI event + mouse fallback")
+    print("[EndHub] first-screen patch loaded | Endure retry + farm self-recovery")
 end
