@@ -1,0 +1,68 @@
+local HttpService = game:GetService("HttpService")
+local placeKey = "125503525638054"
+local route = {
+    {2794.95068359375,439.0741271972656,-57.728790283203128},
+    {2000.6439208984376,306.58551025390627,636.3093872070313},
+    {2324.63232421875,297.9136962890625,1210.0494384765626},
+    {1722.4625244140626,410.88531494140627,1478.7861328125},
+    {1007.1444702148438,402.21875,2844.5810546875},
+    {-883.1048583984375,371.4134826660156,1924.5101318359376},
+    {-229.37794494628907,366.5744934082031,2717.02392578125},
+    {-1458.91796875,375.8865051269531,2614.640625},
+    {-1702.943359375,420.02325439453127,1786.62255859375},
+    {-2473.035888671875,430.93328857421877,2145.46484375},
+    {-1919.45947265625,383.5122375488281,928.619873046875},
+    {-2737.49560546875,411.6707763671875,938.1614990234375},
+    {-2752.07373046875,395.3485412597656,-187.9600830078125},
+    {-1509.28759765625,346.7532958984375,-1837.751708984375},
+    {-2636.699462890625,387.8774719238281,-2341.8193359375},
+    {-1068.35693359375,456.0237121582031,-2710.92626953125},
+    {-487.7143249511719,357.6449279785156,-1603.5076904296876},
+    {541.3679809570313,398.4844665527344,-2718.80078125},
+    {1081.67724609375,321.2646484375,-1867.985107421875},
+    {2723.799072265625,306.644287109375,-2751.929931640625},
+    {2791.287109375,345.0995788574219,-23.35175895690918},
+    {2028.6304931640626,290.86474609375,541.1170654296875},
+    {1660.17138671875,295.9403991699219,1390.7894287109376},
+    {1076.7381591796876,321.06243896484377,1524.9884033203126},
+    {2364.318603515625,417.8075256347656,1491.3944091796876},
+    {1223.6268310546876,428.7280578613281,2564.30419921875},
+    {-882.2215576171875,495.2737731933594,1836.6962890625},
+    {-1814.5987548828126,452.4473571777344,888.4254150390625},
+}
+
+local function ensureFolder()
+    if type(isfolder) == "function" and type(makefolder) == "function" then
+        local ok, exists = pcall(isfolder, "EndHub")
+        if ok and not exists then pcall(makefolder, "EndHub") end
+    end
+end
+
+local function seedDisk()
+    if type(writefile) ~= "function" then return false, "writefile unavailable" end
+    ensureFolder()
+    local path = "EndHub/config.json"
+    local cfg = {}
+    if type(isfile) == "function" and type(readfile) == "function" then
+        local okExists, exists = pcall(isfile, path)
+        if okExists and exists then
+            local okRead, raw = pcall(readfile, path)
+            if okRead and type(raw) == "string" and raw ~= "" then
+                local okDecode, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
+                if okDecode and type(decoded) == "table" then cfg = decoded end
+            end
+        end
+    end
+    cfg.TrinketRoutes = type(cfg.TrinketRoutes) == "table" and cfg.TrinketRoutes or {}
+    cfg.TrinketRoutes[placeKey] = route
+    cfg.TrinketExplore = true
+    local okEncode, raw = pcall(HttpService.JSONEncode, HttpService, cfg)
+    if not okEncode then return false, raw end
+    local okWrite, err = pcall(writefile, path, raw)
+    if not okWrite then return false, err end
+    return true
+end
+
+local ok, err = seedDisk()
+print("[EndHub Solara] normal profile route seed | points=" .. tostring(#route) .. " | disk=" .. (ok and "OK" or ("NO: " .. tostring(err))))
+return {Route = route, Seeded = ok}
