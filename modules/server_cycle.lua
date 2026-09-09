@@ -251,12 +251,37 @@ fn()
         if allowed and R.Enabled and R.Allowed then R.RouteSawMatching = true end
         return allowed
     end
+    function R.CharacterReady()
+        local character, hum = Player.Character, C.Humanoid()
+        if not character or not C.Root() or not hum or hum.Health <= 0 then
+            R.ReadyCharacter, R.CharacterReadyAt = nil, nil
+            R.MenuEntered, R.MenuClearSince = false, nil
+            return false
+        end
+        if character ~= R.ReadyCharacter then
+            R.ReadyCharacter = character
+            R.CharacterReadyAt = tick() + 5
+            R.MenuEntered, R.MenuClearSince = false, nil
+        end
+        return tick() >= (R.CharacterReadyAt or math.huge)
+    end
+    function R.PauseForCharacter()
+        if not R.CharacterPaused then
+            R.CharacterPaused = true
+            stopWork() -- Cancel sales and discard the dead character's return position.
+            status("WAIT PLAY / RESPAWN + 5 SECONDS")
+        end
+    end
     local oldStart, oldStep = H.Farm.Start, H.Farm.Step
     function H.Farm.Start(...)
+        if not R.CharacterReady() then R.PauseForCharacter() return false end
+        if not R.MenuEntered then return false end
         if R.Enabled and not R.Allowed then return false end
         return oldStart(...)
     end
     function H.Farm.Step(...)
+        if not R.CharacterReady() then R.PauseForCharacter() return end
+        if not R.MenuEntered then return end
         if R.Enabled and not R.Allowed then return end
         return oldStep(...)
     end
@@ -264,6 +289,8 @@ fn()
         for _, key in ipairs({"Start", "Step", "AutoFarmStep"}) do
             local original = H.Sell[key]
             if original then H.Sell[key] = function(...)
+                if not R.CharacterReady() then R.PauseForCharacter() return end
+                if not R.MenuEntered then return end
                 if R.Enabled and not R.Allowed then return end
                 return original(...)
             end end
@@ -375,7 +402,10 @@ fn()
             local record = R.Checks[player]
             if not record or record.State ~= "allowed" then return end
         end
+        local characterReady = R.CharacterReady()
         if R.MenuStep() then return end
+        if not characterReady then R.PauseForCharacter() return end
+        R.CharacterPaused = false
         if not C.Root() then status("WAIT CHARACTER") return end
         R.Allowed, R.IdleSince = true, nil
         cfg.AutoFarmSell = cfg.ServerCycleAutoSell
@@ -534,6 +564,7 @@ fn()
     task.spawn(function()
         while not R.Closed and not H.State.Unloaded do
             if alive() and not R.Hopping then
+                if not R.CharacterReady() then R.PauseForCharacter() end
                 tryResume()
                 -- Automatic loot hops are decided only at the end of a complete route.
             end

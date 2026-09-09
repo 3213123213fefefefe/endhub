@@ -32,3 +32,7 @@ usam serviços simulados; não substituem a validação dentro do Roblox.
 ## Entrada automática no jogo
 
 Após verificar os jogadores, o ciclo procura os botões visíveis do jogo: **Play / Resistir**, **Slot 1** e **Current Server / Servidor atual**, conforme o menu enviado. Clica uma vez por tentativa, com intervalo de dois segundos. Só libera o Loot quando o menu desaparece e há personagem vivo. Não cria nem exclui slots. Se a interface mudar e não houver botão reconhecido, aguarda e mostra o status; os cliques aparecem em `[EndHub Menu]`.
+
+## Morte e respawn
+
+Coleta e venda ficam bloqueadas sem personagem vivo, durante a troca de personagem e por cinco segundos após o novo personagem estar disponível. O menu precisa fechar antes da retomada. Morrer cancela a venda pendente e descarta a posição de retorno do personagem anterior. Esta proteção não remove insanity de áreas do mapa.

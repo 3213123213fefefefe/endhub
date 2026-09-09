@@ -85,6 +85,10 @@ local function context(options)
         players.PlayerRemoving:Fire(p)
     end
     local player = t:add(1)
+    player.Character = {}
+    t.humanoid = {Health = 100}
+    local emptyGui = {GetDescendants = function() return {} end}
+    player.FindFirstChild = function(_, name) if name == "PlayerGui" then return emptyGui end end
     players.LocalPlayer = player
     for _, id in ipairs(options.ids or {}) do t:add(id) end
     local groups = {}
@@ -142,7 +146,7 @@ local function context(options)
         ReadJson = function(path) return t.disk[path] end,
         WriteJson = function(path, value) t.disk[path] = value return true end,
         Root = function() return t.rootReady and {} or nil end,
-        Humanoid = function() return {Health = 100} end,
+        Humanoid = function() return t.humanoid end,
         DropsFolder = function() return {} end, Noclip = function() end,
         Teleport = function() t.routeTeleports = t.routeTeleports + 1 return true end,
     }
@@ -172,6 +176,7 @@ local function context(options)
     t.H, t.env, t.players, t.player, t.groups, t.service = H, env, players, player, groups, teleports
     t.R = assert(load(cycleSource))()(H)
     t.R.MenuEntered = true
+    t.R.ReadyCharacter, t.R.CharacterReadyAt = player.Character, -1
     return t
 end
 local tests = {}
@@ -187,7 +192,7 @@ test("waits for game, EndHub, character and every player; initializes once", fun
     t.H.State.Ready = true
     t.advance(2); equal(t.starts, 0)
     t.advance(3); equal(t.starts, 0)
-    t.rootReady = true; t.advance(1)
+    t.rootReady = true; t.advance(6)
     equal(t.starts, 1); equal(#t.queued, 1)
     for _, id in ipairs({1, 2, 3}) do equal(t.queries[id], 1) end
     assert(t.H.Config.AutoFarmSell)
@@ -413,6 +418,24 @@ test("menu enters Play, existing Slot 1 and current server before starting loot"
     t.advance(2); equal(t.starts, 0)
     t.advance(5); equal(clicks, 3); equal(t.starts, 1); assert(t.R.MenuEntered)
     getconnections, firesignal = nil, nil
+end)
+
+test("death stops farm and sales; a new living character waits five seconds", function()
+    local t = context()
+    t.R.Bootstrap(); t.advance(1); equal(t.starts, 1)
+    t.H.Config.AutoSell = true
+    t.H.Sell.Runtime.SellerTrip = {Origin = "old character"}
+    t.humanoid.Health = 0
+    t.H.Farm.Step()
+    equal(t.H.State.Running, false); equal(t.H.Config.AutoSell, false)
+    equal(t.H.Sell.Runtime.SellerTrip, nil)
+    t.H.Farm.Start(); t.H.Sell.Start(); equal(t.starts, 1)
+    t.advance(5); equal(t.starts, 1)
+    t.player.Character = {}; t.humanoid = {Health = 100}
+    t.H.Farm.Step(); t.advance(4.9); equal(t.starts, 1)
+    t.advance(1); equal(t.starts, 2)
+    t.player.Character = {} -- Replacement is also guarded even without a sampled death.
+    t.H.Farm.Step(); equal(t.H.State.Running, false)
 end)
 
 test("actual Work entrypoint deduplicates concurrent and repeated execution and recovers from load failure", function()
