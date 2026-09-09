@@ -7,6 +7,7 @@ return function(H)
     H.Config.FarmFlySpeed = tonumber(H.Config.FarmFlySpeed) or 85
     if H.Config.LootFilterEnabled == nil then H.Config.LootFilterEnabled = false end
     H.Config.LootWhitelist = type(H.Config.LootWhitelist) == "table" and H.Config.LootWhitelist or {}
+    if H.Config.BackgroundPickup == nil then H.Config.BackgroundPickup = true end
 
     local ignored = {}
     local counted = {}
@@ -151,6 +152,27 @@ return function(H)
         return best
     end
 
+    -- Captured from a normal manual E interaction in this game:
+    -- ReplicatedStorage.Remotes.InteractPromptEvent:FireServer("PickupDrop", dropModel)
+    -- This is used only after the existing local pickup-distance check passes.
+    -- If the remote is missing or errors, the old E-key path remains as fallback.
+    function F.TryBackgroundPickup(target)
+        if H.Config.BackgroundPickup == false then return false end
+        if not F.Allowed(target) then return false end
+
+        local drops = C.DropsFolder()
+        if not drops or not target:IsDescendantOf(drops) then return false end
+
+        local remotes = H.S.RS:FindFirstChild("Remotes")
+        local remote = remotes and remotes:FindFirstChild("InteractPromptEvent")
+        if not remote or not remote:IsA("RemoteEvent") then return false end
+
+        local ok = pcall(function()
+            remote:FireServer("PickupDrop", target)
+        end)
+        return ok
+    end
+
     function F.Start()
         if H.State.Unloaded or H.State.Ready == false then return end
         if H.Boss and H.Config.BossBotEnabled then H.Boss.Stop() end
@@ -242,8 +264,14 @@ return function(H)
 
         if H.Config.AutoPickup and tick() - H.State.LastPickup >= H.Config.PickupInterval then
             H.State.LastPickup = tick()
-            H.State.Status = "PICKUP " .. target.Name
-            C.PressKey(0x45)
+
+            local usedRemote = F.TryBackgroundPickup(target)
+            if usedRemote then
+                H.State.Status = "PICKUP REMOTE " .. target.Name
+            else
+                H.State.Status = "PICKUP E " .. target.Name
+                C.PressKey(0x45)
+            end
 
             local before = target
             task.delay(0.40, function()
@@ -268,7 +296,7 @@ return function(H)
             if obj == H.State.CurrentTarget and not counted[obj] then
                 counted[obj] = true
                 H.State.Collected = H.State.Collected + 1
-                        H.State.LootPickupSerial = (H.State.LootPickupSerial or 0) + 1
+                H.State.LootPickupSerial = (H.State.LootPickupSerial or 0) + 1
                 H.State.Status = "COLLECTED"
                 F.ClearTarget()
             end
@@ -295,4 +323,3 @@ return function(H)
         end
     end)
 end
-
