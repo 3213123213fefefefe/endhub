@@ -6,6 +6,56 @@ return function(H)
     if not S or not C then return end
 
     local runtime = S.Runtime
+    -- Prefer coordinates actually observed in this map over embedded defaults.
+    local mapKey = tostring(game.PlaceId)
+    H.Config.ObservedSellerByPlace = H.Config.ObservedSellerByPlace or {}
+    local oldSaveSeller, oldGetSeller = C.SaveSellerPosition, C.GetSavedSeller
+    function C.SaveSellerPosition(pos)
+        if typeof(pos) == "Vector3" then
+            H.Config.ObservedSellerByPlace[mapKey] = {pos.X, pos.Y, pos.Z}
+        end
+        return oldSaveSeller(pos)
+    end
+    function C.GetSavedSeller()
+        -- Previously captured merchant coordinates for this map.
+        if mapKey == "125503525638054" then
+            return Vector3.new(242.51593, 188.5, 1.00323868)
+        end
+        local pos = H.Config.ObservedSellerByPlace[mapKey]
+        if type(pos) == "table" and tonumber(pos[1]) and tonumber(pos[2]) and tonumber(pos[3]) then
+            return Vector3.new(tonumber(pos[1]), tonumber(pos[2]), tonumber(pos[3]))
+        end
+        return oldGetSeller()
+    end
+    local function sellerDestination(pos)
+        local distance = math.max(0.2, tonumber(H.Config.SellerInteractDistance) or 1.65)
+        return pos + Vector3.new(0, 0, math.min(1, distance * 0.5))
+    end
+    local function approachSeller(pos, missing)
+        local root = C.Root()
+        if not root then return end
+        if missing and tick() - (runtime.LastStreamRequest or 0) >= 3 and not runtime.StreamPending then
+            runtime.LastStreamRequest = tick()
+            runtime.StreamPending = true
+            task.spawn(function()
+                local ok, err = pcall(function() Player:RequestStreamAroundAsync(pos, 2) end)
+                runtime.StreamPending = false
+                if not ok then print("[EndHub Seller] streaming request failed: " .. tostring(err)) end
+            end)
+        end
+        local destination = sellerDestination(pos)
+        if (root.Position - destination).Magnitude > 0.5 and tick() - (runtime.LastSellerTP or 0) >= 0.5 then
+            runtime.LastSellerTP = tick()
+            C.Noclip(true)
+            C.Teleport(destination, pos)
+            runtime.SellerReady = false
+            runtime.ReadyAt = 0
+            if tick() - (runtime.LastSellerLog or 0) >= 2 then
+                runtime.LastSellerLog = tick()
+                print("[EndHub Seller] approach | npcLoaded=" .. tostring(not missing) .. " | destination=" .. tostring(destination))
+            end
+        end
+    end
 
     -- Match an exact inventory category + Tool name, never a partial name.
     -- These are the Common items identified in the user's inventory.
@@ -35,7 +85,18 @@ return function(H)
         return entry.Category .. "|" .. entry.Tool.Name
     end
 
+    -- Always included in an active sale, independent of saved UI filters.
+    local alwaysSellTrinkets = {
+        ["Amulet"] = true,
+        ["Goblet"] = true,
+        ["Old Amulet"] = true,
+        ["Old Ring"] = true,
+        ["Ring"] = true,
+    }
     local function exactSelected(entry)
+        if entry.Category == "Trinket" and alwaysSellTrinkets[entry.Tool.Name] then
+            return true
+        end
         return H.Config.SellExactEnabled and H.Config.SellExactItems[identity(entry)] == true
     end
 
@@ -133,39 +194,56 @@ return function(H)
         return 1
     end
 
-    -- Classify inventory entries by their tab before using other metadata.
+    -- UI tabs establish categories; live owned instances establish quantities.
+    -- Keep category knowledge while the UI retains references to sold instances.
+    local categoryByName = {}
+    local categoryByTool = setmetatable({}, {__mode = "k"})
     function S.InventoryEntries()
         local pg = Player:FindFirstChild("PlayerGui")
         local inv = pg and pg:FindFirstChild("InventoryGui", true)
-        if not inv then return {} end
-
-        local out, seen = {}, {}
-        for _, ref in ipairs(inv:GetDescendants()) do
-            if ref:IsA("ObjectValue") and ref.Name == "ToolRef" then
-                local tool = ref.Value
-                if tool and tool.Parent and not seen[tool] then
+        if inv then
+            for _, ref in ipairs(inv:GetDescendants()) do
+                if ref:IsA("ObjectValue") and ref.Name == "ToolRef" and ref.Value then
                     local full = ref:GetFullName()
-                    local bad = string.find(full, ".HotbarFrame.", 1, true)
-                        or string.find(full, ".SellTrashFrame.", 1, true)
-                    if not bad then
+                    if not string.find(full, ".HotbarFrame.", 1, true)
+                        and not string.find(full, ".SellTrashFrame.", 1, true) then
+                        local tool = ref.Value
                         local category = categoryFromRef(ref)
                         if category then
-                            seen[tool] = true
-                            local slot = ref.Parent
-                            out[#out + 1] = {
-                                Tool = tool,
-                                Ref = ref,
-                                Slot = slot,
-                                Category = category,
-                                Rarity = C.ToolRarity(tool),
-                                Amount = stackCount(slot),
-                                IsTrinket = category == "Trinket",
-                            }
+                            categoryByTool[tool] = category
+                            local prior = categoryByName[tool.Name]
+                            if prior == nil then categoryByName[tool.Name] = category
+                            elseif prior ~= category then categoryByName[tool.Name] = false end
                         end
                     end
                 end
             end
         end
+        local out, seen = {}, {}
+        local function collect(container)
+            if not container then return end
+            for _, tool in ipairs(container:GetChildren()) do
+                if tool:IsA("Tool") and not seen[tool] then
+                    local category = categoryByTool[tool] or categoryByName[tool.Name]
+                    local marker = tool:FindFirstChild("IsTrinket")
+                    if alwaysSellTrinkets[tool.Name] and marker and marker:IsA("BoolValue") and marker.Value then
+                        category = "Trinket"
+                    end
+                    if category then
+                        seen[tool] = true
+                        out[#out + 1] = {
+                            Tool = tool,
+                            Category = category,
+                            Rarity = C.ToolRarity(tool),
+                            Amount = 1,
+                            IsTrinket = category == "Trinket",
+                        }
+                    end
+                end
+            end
+        end
+        collect(Player:FindFirstChild("Backpack"))
+        collect(Player.Character)
         return out
     end
 
@@ -249,6 +327,7 @@ return function(H)
 
     local function interactSeller(seller)
         local remotes = RS:FindFirstChild("Remotes")
+        local direct = false
         if remotes then
             local register = remotes:FindFirstChild("RegisterNPCInteraction")
             local dialog = remotes:FindFirstChild("DialogEvent")
@@ -256,13 +335,81 @@ return function(H)
                 pcall(function() register:FireServer("Clement, Merchant") end)
             end
             if dialog and dialog:IsA("RemoteEvent") then
-                pcall(function() dialog:FireServer("start", seller, 1) end)
+                direct = pcall(function() dialog:FireServer("start", seller, 1) end)
             end
         end
+        if direct then return end
         C.PressKey(0x45)
         task.delay(0.22, function()
             if not H.State.Unloaded then C.PressKey(0x31) end
         end)
+    end
+
+    local function remainingSelected()
+        local pg = Player:FindFirstChild("PlayerGui")
+        if not Player:FindFirstChild("Backpack") or not Player.Character
+            or not pg or not pg:FindFirstChild("InventoryGui", true) then return nil end
+        local count = 0
+        for _, entry in ipairs(S.InventoryEntries()) do
+            if entry.Tool.Name ~= "Bag"
+                and (exactSelected(entry) or S.GetFilter(C.NormalizeRarity(entry.Rarity), entry.Category)) then
+                count = count + entry.Amount
+            end
+        end
+        return count
+    end
+
+    local previousStart = S.Start
+    function S.Start()
+        runtime.SaleVerifiedEmpty = false
+        if previousStart then previousStart() end
+    end
+
+    local previousAutoFarmStep = S.AutoFarmStep
+    function S.AutoFarmStep()
+        if H.State.Unloaded or not H.Config.AutoFarmSell then return end
+        if H.State.FarmSellPhase ~= "SELL" then
+            return previousAutoFarmStep()
+        end
+        -- Capacity alone cannot authorize collecting again.
+        if H.State.Running and H.Farm then H.Farm.Stop() end
+        local remaining = remainingSelected()
+        if runtime.SaleBusy or not runtime.SaleVerifiedEmpty or remaining ~= 0 then
+            if remaining ~= 0 then runtime.SaleVerifiedEmpty = false end
+            H.Config.AutoSell = true
+            return
+        end
+        local trip = runtime.SellerTrip
+        if trip then
+            local root = C.Root()
+            if not root then H.State.SellStatus = "WAIT CHARACTER BEFORE RETURN" return end
+            if Player.Character ~= trip.Character then
+                H.Config.AutoFarmSell = false
+                H.Config.AutoSell = false
+                H.State.SellStatus = "CHARACTER CHANGED - RETURN PAUSED"
+                return
+            end
+            H.Config.AutoSell = false
+            H.State.SellStatus = "RETURN TO COLLECTION POSITION"
+            if not trip.ReturnStarted or (root.Position - trip.Origin.Position).Magnitude > 3 then
+                if not trip.LastReturn or tick() - trip.LastReturn >= 0.5 then
+                    trip.LastReturn = tick()
+                    trip.ReturnStarted = tick()
+                    C.Noclip(true)
+                    root.CFrame = trip.Origin
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
+                    print("[EndHub Seller] returning to collection origin=" .. tostring(trip.Origin.Position))
+                end
+                return
+            end
+            if tick() - trip.ReturnStarted < 0.3 then return end
+        end
+        S.Stop()
+        runtime.SellerTrip = nil
+        H.State.FarmSellPhase = "FARM"
+        print("[EndHub AutoSell] inventory verified: 0 selected items; returned to origin; resuming collection")
+        if H.Farm then H.Farm.Start() end
     end
 
     local saleGeneration = 0
@@ -292,21 +439,30 @@ return function(H)
             end
             local function finish(message)
                 if cancelled() then return end
+                runtime.SaleVerifiedEmpty = false
+                -- Confirm completion repeatedly while SaleBusy blocks the farm transition.
+                local confirmed = string.sub(message, 1, 5) == "DONE:"
+                if confirmed then
+                    for _ = 1, 4 do
+                        if cancelled() then return end
+                        if remainingSelected() ~= 0 then confirmed = false break end
+                        task.wait(0.25)
+                    end
+                    if cancelled() then return end
+                    if remainingSelected() ~= 0 then confirmed = false end
+                end
+                runtime.SaleVerifiedEmpty = confirmed
                 runtime.OneShot = false
                 runtime.TrinketOnlyOnce = false
                 runtime.SellerReady = false
                 H.Config.AutoSell = false
-                -- Let Farm -> Sell resume if capacity has reached its target.
-                -- Otherwise pause rather than endlessly retry unsellable items.
-                if H.Config.AutoFarmSell then
-                    C.ReadCapacity()
-                    if H.State.InventoryPercent <= H.Config.ResumeAtPercent then
-                        S.AutoFarmStep()
-                    else
-                        H.Config.AutoFarmSell = false
-                        message = message .. " | FARM PAUSED: CHECK REMAINING ITEMS"
-                    end
+                if H.Config.AutoFarmSell and not confirmed then
+                    H.Config.AutoFarmSell = false
+                    if H.Farm then H.Farm.Stop() end
+                    message = message .. " | FARM PAUSED: SALE NOT CONFIRMED COMPLETE"
                 end
+                print("[EndHub AutoSell] finish | remaining=" .. tostring(remainingSelected())
+                    .. " | confirmedEmpty=" .. tostring(confirmed) .. " | " .. message)
                 H.State.SellStatus = message
             end
             local ok, err = pcall(function()
@@ -327,10 +483,36 @@ return function(H)
                         end
                     end
                     if not chosen then
+                        -- Rebuilds can briefly remove every ToolRef from the UI.
+                        local refreshUntil = tick() + 3
+                        repeat
+                            if cancelled() then return end
+                            task.wait(0.25)
+                            local refreshed = snapshot()
+                            if refreshed then
+                                for _, candidate in ipairs(refreshed) do
+                                    local candidateKey = identity(candidate)
+                                    local selected = candidate.Tool.Name ~= "Bag"
+                                        and (exactSelected(candidate) or S.GetFilter(C.NormalizeRarity(candidate.Rarity), candidate.Category))
+                                    if selected and (not trinketOnly or candidate.Category == "Trinket")
+                                        and (failures[candidateKey] or 0) < 2 then
+                                        chosen = candidate
+                                        break
+                                    end
+                                end
+                            end
+                        until chosen or tick() >= refreshUntil
+                        if chosen then
+                            print("[EndHub AutoSell] inventory refreshed; rebuilding sale selection")
+                            entries, counts = snapshot()
+                            if not entries then finish("INVENTORY UNAVAILABLE - SELL PAUSED") return end
+                        else
+                        print("[EndHub AutoSell] no eligible items after 3s recheck")
                         local blocked = 0
                         for _, attempts in pairs(failures) do if attempts >= 2 then blocked = blocked + 1 end end
                         finish(string.format("DONE: COUNT DECREASED %d | UNCHANGED %d", decreased, blocked))
                         return
+                        end
                     end
                     local key, tool = identity(chosen), chosen.Tool
                     local before = counts[key] or 0
@@ -340,33 +522,85 @@ return function(H)
                     if not part or not root or (root.Position - part.Position).Magnitude > H.Config.SellerInteractDistance then
                         finish("SELLER OUT OF RANGE - SELL PAUSED") return
                     end
-                    -- Proven in-game: one owned reference sells the stack.
-                    -- Never duplicate the reference or mix another item into this request.
-                    H.State.SellStatus = "SELLING " .. chosen.Tool.Name
-                    print("[EndHub AutoSell] " .. key .. " | BEFORE=" .. before)
-                    remote:FireServer({tool})
+                    -- Batch distinct owned instances of the same standard trinket.
+                    local payload, included = {}, {}
+                    local batchTrinket = chosen.Category == "Trinket" and alwaysSellTrinkets[tool.Name] == true
+                    if batchTrinket then
+                        local backpack = Player:FindFirstChild("Backpack")
+                        local character = Player.Character
+                        for _, entry in ipairs(entries) do
+                            local candidate = entry.Tool
+                            local owned = (backpack and candidate:IsDescendantOf(backpack))
+                                or (character and candidate:IsDescendantOf(character))
+                            if identity(entry) == key and owned and not included[candidate] then
+                                included[candidate] = true
+                                payload[#payload + 1] = candidate
+                                if #payload >= 50 then break end
+                            end
+                        end
+                    else
+                        payload[1] = tool
+                    end
+                    if #payload == 0 then
+                        finish("OWNED REFERENCES CHANGED - RETRY SALE")
+                        return
+                    end
+                    H.State.SellStatus = "SELLING " .. chosen.Tool.Name .. " x" .. #payload
+                    print("[EndHub AutoSell] " .. key .. " | BEFORE=" .. before .. " | REQUESTED=" .. #payload)
+                    remote:FireServer(payload)
                     sent = sent + 1
                     runtime.LastSell = tick()
                     runtime.LastStacks = sent
-                    -- Advance as soon as replication shows a stable decrease.
-                    -- Retain the old 1.5s allowance for slow server responses.
-                    local verifyUntil = tick() + 1.5
+                    -- Missing UI references are not proof that the stack was sold.
+                    local verificationStarted = tick()
+                    local verifyUntil = verificationStarted + 5
+                    local ownedBackpack = Player:FindFirstChild("Backpack")
+                    local ownedCharacter = Player.Character
+                    local singleOwned = chosen.Amount == 1 and (
+                        (ownedBackpack and tool:IsDescendantOf(ownedBackpack))
+                        or (ownedCharacter and tool:IsDescendantOf(ownedCharacter)))
+                    local liveTrinket = batchTrinket or singleOwned == true
+                    local minimumWait = liveTrinket and 0.25
+                        or math.max(1.5, tonumber(H.Config.SellInterval) or 0.8)
                     local afterEntries, afterCounts
-                    local confirmations = 0
-                    task.wait(0.25)
+                    local previousAfter, stableSince
                     repeat
                         if cancelled() then return end
+                        task.wait(liveTrinket and 0.05 or 0.20)
                         afterEntries, afterCounts = snapshot()
-                        if afterEntries and (afterCounts[key] or 0) < before then
-                            confirmations = confirmations + 1
-                        else
-                            confirmations = 0
+                        local observed = afterEntries and (afterCounts[key] or 0) or nil
+                        if observed ~= previousAfter then
+                            previousAfter = observed
+                            stableSince = tick()
                         end
-                        if confirmations >= 2 or tick() >= verifyUntil then break end
-                        task.wait(math.min(0.10, math.max(0, verifyUntil - tick())))
-                    until false
+                        local stableFor = stableSince and tick() - stableSince or 0
+                        local elapsed = tick() - verificationStarted
+                        if liveTrinket then
+                            local backpack = Player:FindFirstChild("Backpack")
+                            local character = Player.Character
+                            local stillOwned = false
+                            for _, submitted in ipairs(payload) do
+                                if (backpack and submitted:IsDescendantOf(backpack))
+                                    or (character and submitted:IsDescendantOf(character)) then
+                                    stillOwned = true
+                                    break
+                                end
+                            end
+                            if backpack and character and not stillOwned
+                                and observed and observed < before
+                                and elapsed >= minimumWait and stableFor >= 0.10 then break end
+                        else
+                            if observed and observed > 0 and observed < before
+                                and elapsed >= minimumWait and stableFor >= 0.5 then break end
+                            -- Other items still depend on UI stack references.
+                            if observed == 0 and elapsed >= math.max(3, minimumWait)
+                                and stableFor >= 2.5 then break end
+                        end
+                    until tick() >= verifyUntil
                     if not afterEntries then finish("CANNOT VERIFY - SELL PAUSED") return end
                     local after = afterCounts[key] or 0
+                    print("[EndHub AutoSell] verified " .. key .. " | visible=" .. after
+                        .. " | waited=" .. string.format("%.2f", tick() - verificationStarted))
                     if after < before then
                         decreased = decreased + before - after
                         runtime.LastSold = decreased
@@ -402,6 +636,7 @@ return function(H)
     local diagnosticGeneration = 0
     local previousStop = S.Stop
     function S.Stop()
+        runtime.SellerTrip = nil
         diagnosticGeneration = diagnosticGeneration + 1
         saleGeneration = saleGeneration + 1
         runtime.TrinketOnlyOnce = false
@@ -500,7 +735,7 @@ return function(H)
     -- Replace only the seller step. Farm logic, saved Clement position,
     -- filters and all other features remain untouched.
     function S.Step()
-        if H.State.Unloaded or runtime.IndividualBusy or runtime.SaleBusy then return end
+        if H.State.Unloaded or H.State.Ready == false or runtime.IndividualBusy or runtime.SaleBusy then return end
         local active = H.Config.AutoSell or runtime.OneShot or runtime.InteractOnly
         if not active then return end
 
@@ -508,6 +743,27 @@ return function(H)
         local root = C.Root()
         if not root then
             H.State.SellStatus = "WAIT CHARACTER"
+            return
+        end
+
+        if not runtime.SellerTrip then
+            local saved = C.GetSavedSeller()
+            if not saved then
+                H.State.SellStatus = "SELLER COORDINATES MISSING"
+                return
+            end
+            runtime.SellerTrip = {
+                Origin = root.CFrame,
+                Character = Player.Character,
+                Destination = saved,
+            }
+            H.State.SellStatus = "TP FIXED SELLER COORDINATES"
+            C.Noclip(true)
+            C.Teleport(saved)
+            runtime.SellerReady = false
+            runtime.ReadyAt = 0
+            print("[EndHub Seller] trip started | origin=" .. tostring(runtime.SellerTrip.Origin.Position)
+                .. " | fixedDestination=" .. tostring(saved))
             return
         end
 
@@ -519,13 +775,8 @@ return function(H)
                 return
             end
 
-            local d = (root.Position - saved).Magnitude
-            if d > H.Config.SellerInteractDistance then
-                H.State.SellStatus = "TP SAVED SELLER AREA"
-                C.Teleport(saved + Vector3.new(0, 4, 0))
-            else
-                H.State.SellStatus = "WAIT CLEMENT STREAM"
-            end
+            H.State.SellStatus = "APPROACH SAVED CLEMENT / WAIT STREAM"
+            approachSeller(saved, true)
             return
         end
 
@@ -536,12 +787,9 @@ return function(H)
         end
         C.SaveSellerPosition(part.Position)
 
-        local destination = part.Position + Vector3.new(0, 2.5, 0)
-        if (root.Position - destination).Magnitude > H.Config.SellerInteractDistance then
+        if (root.Position - part.Position).Magnitude > H.Config.SellerInteractDistance then
             H.State.SellStatus = "TP TO CLEMENT"
-            C.Teleport(destination, part.Position)
-            runtime.SellerReady = false
-            runtime.ReadyAt = 0
+            approachSeller(part.Position, false)
             return
         end
 
@@ -593,6 +841,7 @@ return function(H)
 
     if tabs and tabs.Sell then
         local exact = tabs.Sell:AddLeftGroupbox("Sell by Exact Item")
+        exact:AddLabel("EH_AlwaysSellTrinkets", {Text = "Always sell: Amulet, Goblet, Old Amulet, Old Ring, Ring (ignores filters)", DoesWrap = true})
         exact:AddToggle("EH_SellExactEnabled", {
             Text = "Include exact items regardless of rarity",
             Default = H.Config.SellExactEnabled,
@@ -626,46 +875,8 @@ return function(H)
                 options.EH_SellExactItems:SetValue(selected)
             end
         end})
-        exact:AddButton({Text = "COPY COMMON ITEM IDENTITIES", Func = function()
-            S.ExportItemIdentities()
-        end})
-        local g = tabs.Sell:AddRightGroupbox("Trinket Sell Fix")
-        g:AddButton({Text = "TEST GOBLET + OLD AMULET INDIVIDUALLY", Func = function()
-            S.TestRemainingIndividually()
-        end})
-        g:AddButton({Text = "TEST SELL SELECTED TRINKETS ONLY", Func = function()
-            S.TestSellTrinketsOnly()
-        end})
-        g:AddButton({Text = "REFRESH TRINKET DIAGNOSTIC", Func = function()
-            local lines = S.DebugTrinkets()
-            H.State.SellStatus = "TRINKET DEBUG: " .. tostring(#lines) .. " STACKS"
-            for _, line in ipairs(lines) do print("[EndHub Trinket] " .. line) end
-        end})
-        g:AddLabel("EH_TrinketFixCount", {Text = "Selected trinkets: --", DoesWrap = true})
-        g:AddLabel("EH_TrinketFixDetail", {Text = "Detected: --", DoesWrap = true})
-
-        task.spawn(function()
-            while not H.State.Unloaded do
-                pcall(function()
-                    buildSplitPayloads()
-                    if options and options.EH_TrinketFixCount then
-                        options.EH_TrinketFixCount:SetText(
-                            "Selected trinkets: " .. tostring(runtime.SelectedTrinketItems or 0)
-                            .. " items / " .. tostring(runtime.SelectedTrinketStacks or 0) .. " stacks"
-                        )
-                    end
-                    if options and options.EH_TrinketFixDetail then
-                        local first = runtime.TrinketDebug and runtime.TrinketDebug[1]
-                        options.EH_TrinketFixDetail:SetText(
-                            "Detected: " .. tostring(runtime.TrinketDebug and #runtime.TrinketDebug or 0)
-                            .. (first and (" | " .. first) or "")
-                        )
-                    end
-                end)
-                task.wait(0.75)
-            end
-        end)
     end
 
     print("[EndHub] trinket sell: tab classification fix loaded")
 end
+

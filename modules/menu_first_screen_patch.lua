@@ -92,6 +92,7 @@ return function(H)
     end
 
     local function mouseClick(button)
+        if H.Core.InputFocused and not H.Core.InputFocused() then return false end
         local p, s = button.AbsolutePosition, button.AbsoluteSize
         if s.X <= 0 or s.Y <= 0 then return false end
         local x, y = p.X + s.X / 2, p.Y + s.Y / 2
@@ -191,3 +192,4 @@ return function(H)
     R.FirstScreenPatchInstalled = true
     print("[EndHub] first-screen patch loaded | Endure retry + farm self-recovery")
 end
+

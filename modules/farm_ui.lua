@@ -48,6 +48,7 @@ return function(H)
         return names
     end
 
+    local savedSelection = F.GetSelectedLoot()
     LootGroup:AddDropdown("EH_FarmLootSelection", {
         Text = "Loot to pick",
         Values = visibleLootNames(),
@@ -71,7 +72,7 @@ return function(H)
     end
 
     if Options.EH_FarmLootSelection and Options.EH_FarmLootSelection.SetValue then
-        Options.EH_FarmLootSelection:SetValue(F.GetSelectedLoot())
+        Options.EH_FarmLootSelection:SetValue(savedSelection)
     end
 
     LootGroup:AddButton({
@@ -102,18 +103,6 @@ return function(H)
 
     LootGroup:AddLabel("With 'Only pick selected loot' OFF, the bot farms every trinket as before. With it ON, an empty selection means it will pick nothing until you select loot.", true)
 
-    task.spawn(function()
-        while not H.State.Unloaded and H.UI and H.UI.Library and not H.UI.Library.Unloaded do
-            pcall(function()
-                local mode = tostring(H.Config.FarmMoveMode or "TP")
-                if Options.EH_FarmMoveMode and Options.EH_FarmMoveMode.Value ~= mode then
-                    -- Do not force SetValue continuously; this label-free check
-                    -- just keeps external config changes from breaking behavior.
-                end
-            end)
-            task.wait(2)
-        end
-    end)
-
     print("[EndHub] farm movement + loot filter UI loaded")
 end
+

@@ -131,18 +131,9 @@ return function(H)
             return ok
         end
 
-        F.ClearTarget = function()
-            if not forceClear and pendingTarget and state.CurrentTarget == pendingTarget then
-                if stillInDrops(pendingTarget) then
-                    state.Status = "WAIT PICKUP CONFIRM " .. tostring(pendingTarget.Name)
-                    return false
-                end
-                -- Server removed/reparented the drop: pickup is confirmed.
-                pendingTarget = nil
-                pendingSince = 0
-                settleUntil = tick() + 0.12
-            end
-            return originalClearTarget()
+        F.ClearTarget = function(...)
+            pendingTarget, pendingSince = nil, 0
+            return originalClearTarget(...)
         end
 
         if type(originalSkip) == "function" then
@@ -157,6 +148,10 @@ return function(H)
 
         local throttledStep = F.Step
         F.Step = function(dt)
+            if H.State.Unloaded or H.State.Ready == false or not H.State.Running or H.Config.AutoSell then
+                pendingTarget, pendingSince = nil, 0
+                return
+            end
             local now = tick()
             if now < settleUntil then
                 state.Status = "PICKUP CONFIRMED"
@@ -222,3 +217,4 @@ return function(H)
 
     print("[EndHub] FPS patch loaded | noclip debounced | farm 30Hz | pickup de-dupe + confirm | capacity cache")
 end
+

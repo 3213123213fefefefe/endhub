@@ -10,7 +10,7 @@ end
 local cycleSource = read("modules/server_cycle.lua")
 local workSource = read("work_loader.lua")
 local baseSource = read("EndHub.lua")
-local routeSource = assert(workSource:match("local trinketExploreModule = %[%=+%[(.-)%]%=+%]"))
+local routeSource = read("modules/trinket_route.lua")
 assert(load(cycleSource)); assert(load(workSource)); assert(load(baseSource)); assert(load(routeSource))
 local function equal(actual, expected, message)
     assert(actual == expected, (message or "mismatch") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual))
@@ -470,47 +470,42 @@ test("death stops farm and sales; a new living character waits five seconds", fu
     t.H.Farm.Step(); equal(t.H.State.Running, false)
 end)
 
-test("actual Work entrypoint deduplicates concurrent and repeated execution and recovers from load failure", function()
+test("actual Work loader deduplicates callers, patches before bootstrap, and cleans failed loads", function()
     local t = context()
-    local compileWork, order, builds, bootstraps = assert(load(workSource)), {}, 0, 0
+    local compileWork, builds, bootstraps, downloads = assert(load(workSource)), 0, 0, {}
     t.loaded = false
-    appendfile, writefile, isfile = function() end, function() end, function() return true end
-    getfenv, setfenv = function() return _G end, function() end
-    game.HttpGet = function(_, url)
-        if url:find("server_cycle.lua", 1, true) then
-            assert(url:find("/1db0dd34f438133a967af02ee033323ed51ab9bd/", 1, true), "cycle module must be pinned")
-            return "CYCLE"
-        end
-        return "BASE"
-    end
-    local failExtension = false
-    loadstring = function(source, chunk)
-        if source == "BASE" then return function()
+    game.HttpGet = function(_, url) downloads[#downloads + 1] = url return url end
+    local failPatch = false
+    loadstring = function(source)
+        if source:find("EndHub.lua", 1, true) then return function()
             builds = builds + 1
             t.H.JobId = tostring(game.JobId); t.H.State.Ready = false; t.H.State.Unloaded = false
             t.env.ENDHUB = t.H
             return t.H
         end end
         return function() return function(H)
-            order[#order + 1] = chunk
-            if failExtension then error("test extension failure") end
-            if source == "CYCLE" then
-                H.ServerCycle = {MenuStep = function() end, Bootstrap = function() assert(H.State.Ready) bootstraps = bootstraps + 1 end}
+            if failPatch then error("test patch failure") end
+            if source:find("server_cycle.lua", 1, true) then
+                H.ServerCycle = {MenuStep = function() end, Bootstrap = function()
+                    assert(H.State.Ready and downloads[#downloads]:find("server_hop_quality_patch.lua", 1, true))
+                    bootstraps = bootstraps + 1
+                end}
             end
         end end
     end
+    local second
     task.spawn(compileWork); t.advance(0)
-    compileWork(); equal(builds, 0)
+    task.spawn(function() second = compileWork() end); t.advance(0.2); equal(builds, 0)
     t.loaded = true; t.advance(1)
-    equal(builds, 1); equal(bootstraps, 1); equal(order[#order], "EndHub server cycle")
-    equal(compileWork(), t.H); equal(builds, 1); equal(bootstraps, 1)
-    t.env.ENDHUB = nil; failExtension = true
+    equal(builds, 1); equal(bootstraps, 1); equal(second, t.H)
+    equal(compileWork(), t.H); equal(builds, 1)
+    t.env.ENDHUB = nil; failPatch = true
     local ok = pcall(compileWork)
     equal(ok, false); equal(t.env.ENDHUB_BOOT, nil); equal(t.env.ENDHUB_WORK_LOADING, nil)
     equal(t.env.ENDHUB, nil); assert(t.H.State.Unloaded)
-    failExtension = false; compileWork(); equal(bootstraps, 2)
-    t.H.ServerCycle = nil -- A ready UI without its controller must be rebuilt.
-    compileWork(); equal(bootstraps, 3); assert(t.H.ServerCycle)
+    failPatch = false; compileWork(); equal(bootstraps, 2)
+    t.H.ServerCycle = nil
+    compileWork(); equal(bootstraps, 3)
 end)
 
 test("direct EndHub entrypoint integrates the cycle, while Work defers it until after extensions", function()
@@ -530,9 +525,198 @@ test("direct EndHub entrypoint integrates the cycle, while Work defers it until 
     equal(cycleLoads, 1); equal(starts, 1); equal(deferred.State.Ready, false)
 end)
 
+test("shared executor files isolate accounts, profiles and visits; legacy settings migrate read-only", function()
+    local t = context()
+    local files, folders, writes = {}, {}, {}
+    local function copy(v) if type(v) ~= "table" then return v end local o = {} for k,x in pairs(v) do o[k] = copy(x) end return o end
+    local encoded, sequence = {}, 0
+    local http = {JSONEncode = function(_, value) sequence = sequence + 1 local raw = "json" .. sequence encoded[raw] = copy(value) return raw end,
+        JSONDecode = function(_, raw) return copy(assert(encoded[raw])) end}
+    files["EndHub/config.json"] = http:JSONEncode({PickupDistance = 11, TrinketRoutes = {map = {{1,2,3}}}})
+    readfile = function(path) return files[path] end
+    writefile = function(path, raw) files[path] = raw writes[#writes+1] = path end
+    isfile = function(path) return files[path] ~= nil end
+    isfolder = function(path) return folders[path] == true end
+    makefolder = function(path) folders[path] = true end
+    local function client(id, profile)
+        local env = {ENDHUB_PROFILE = profile}
+        getgenv = function() return env end
+        local player = {UserId = id, FindFirstChild = function() end}
+        local services = {Players = {LocalPlayer = player}, HttpService = http,
+            UserInputService = {WindowFocused = signal(), WindowFocusReleased = signal()}}
+        game.GetService = function(_, name) return services[name] or {} end
+        local H = {Config = {}, State = {}, Connections = {}}
+        assert(load(read("modules/core.lua")))()(H)
+        H.S.Player = player
+        assert(load(read("modules/persistence.lua")))()(H)
+        return H
+    end
+    local a, b = client(101), client(202)
+    assert(a.Persistence.Dir ~= b.Persistence.Dir)
+    equal(a.Config.PickupDistance, 11); equal(b.Config.PickupDistance, 11)
+    a.Config.PickupDistance = 4; b.Config.PickupDistance = 9
+    a.PersistenceManager.SaveConfig(true); b.PersistenceManager.SaveConfig(true)
+    equal(a.Core.ReadJson(a.Persistence.ConfigFile).PickupDistance, 4)
+    equal(b.Core.ReadJson(b.Persistence.ConfigFile).PickupDistance, 9)
+    a.Core.WriteJson(a.Persistence.VisitedFile, {alpha = 123})
+    equal(b.Core.ReadJson(b.Persistence.VisitedFile), nil)
+    local again = client(101); equal(again.Config.PickupDistance, 4)
+    local other = client(101, "second"); assert(other.Persistence.Dir ~= a.Persistence.Dir)
+    for _, path in ipairs(writes) do assert(path:find("EndHub/accounts/",1,true) == 1, path) end
+    equal(http:JSONDecode(files["EndHub/config.json"]).PickupDistance, 11)
+    -- Missing file APIs cannot abort initialization.
+    readfile, writefile, isfile, makefolder, isfolder = nil, nil, nil, nil, nil
+    client(303)
+end)
+
+test("core input never uses OS keys; unfocused clients do not send fallback keys", function()
+    local t = context()
+    local pressed, released = 0, 0
+    keypress, keyrelease = function() error("OS input forbidden") end, function() error("OS input forbidden") end
+    local focused = false
+    isrbxactive = function() return focused end
+    local services = {Players = {LocalPlayer = {UserId = 99}}, UserInputService = {},
+        VirtualInputManager = {SendKeyEvent = function(_, down) if down then pressed = pressed + 1 else released = released + 1 end end}}
+    game.GetService = function(_, name) return services[name] or {} end
+    Enum.KeyCode = {E = "E", One = "One"}
+    local H = {State = {}, Config = {}, Connections = {}}
+    assert(load(read("modules/core.lua")))()(H)
+    equal(H.Core.PressKey(0x45), false); t.advance(1); equal(pressed, 0)
+    focused = true; H.Core.PressKey(0x45); H.Core.PressKey(0x45)
+    t.advance(0.01); focused = false; t.advance(1)
+    equal(pressed, 1); equal(released, 1)
+    keypress, keyrelease, isrbxactive = nil, nil, nil
+end)
+
+test("role API outage retries automatically without ever authorizing unknown players", function()
+    local t = context()
+    t.roles[t.player.UserId] = {fail = true}
+    t.R.Bootstrap(); t.advance(10)
+    equal(t.H.State.Running, false)
+    t.roles[t.player.UserId] = {guest = true}
+    t.advance(50)
+    equal(t.H.State.Running, true)
+end)
+
+test("Extras are lazy, repeated open reuses one context, closing cancels a pending download", function()
+    local t = context()
+    local downloads, opened, closed, shown = 0, 0, 0, 0
+    game.HttpGet = function() downloads = downloads + 1 task.wait(1) return "extras" end
+    loadstring = function() return function() return function()
+        opened = opened + 1
+        local ctx = {State = {}, UI = {Library = {Toggle = function() shown = shown + 1 end}}}
+        function ctx.CloseExtras() closed = closed + 1 ctx.State.Unloaded = true end
+        return ctx
+    end end end
+    assert(load(read("modules/extras.lua")))()(t.H)
+    equal(downloads, 0)
+    t.H.Extras.Open(); t.H.Extras.Open(); t.advance(2)
+    equal(downloads, 1); equal(opened, 1)
+    t.H.Extras.Open(); equal(shown, 1); equal(downloads, 1)
+    t.H.Extras.Close(); equal(closed, 1)
+    t.H.Extras.Open(); t.advance(0.2); t.H.Extras.Close(); t.advance(2)
+    equal(opened, 1); equal(t.H.Extras.Context, nil)
+end)
+
+test("compact UI preserves saved sell filters despite dropdown initialization callbacks", function()
+    local t = context()
+    local library = {Options = {}, Toggles = {}}
+    local group = {}
+    local function widget(id, spec, toggle)
+        local obj = {Value = spec.Default}
+        function obj:SetValue(v) self.Value = v if spec.Callback then spec.Callback(v) end end
+        function obj:SetValues(v) self.Values = v end
+        function obj:SetText(v) self.Text = v end
+        (toggle and library.Toggles or library.Options)[id] = obj
+        return obj
+    end
+    function group:AddButton() end
+    function group:AddDivider() end
+    function group:AddLabel(id) return widget(id, {}) end
+    function group:AddToggle(id, spec) return widget(id, spec, true) end
+    function group:AddSlider(id, spec) return widget(id, spec) end
+    function group:AddDropdown(id, spec)
+        local obj = widget(id, spec)
+        if spec.Multi and spec.Callback then spec.Callback({}) end
+        return obj
+    end
+    local names = {}
+    local tab = {AddLeftGroupbox = function() return group end, AddRightGroupbox = function() return group end}
+    function library:CreateWindow() return {AddTab = function(_, name) names[#names+1] = name return tab end} end
+    game.HttpGet = function() return string.rep("x", 1001) end
+    loadstring = function() return function() return library end end
+    Enum.KeyCode = {RightShift = "RightShift"}
+    UDim2 = {fromOffset = function() end}
+    t.H.Persistence = {Dir = "account"}
+    t.H.SellCategories = {"Trinket", "Weapon"}
+    local filters = {Common = {Trinket = true}}
+    t.H.Sell.GetFilter = function(r, c) return filters[r] and filters[r][c] end
+    t.H.Sell.SetFilter = function(r, c, v) filters[r] = filters[r] or {} filters[r][c] = v end
+    assert(load(read("modules/ui.lua")))()(t.H)
+    equal(#names, 3); equal(names[1], "Farm"); equal(names[3], "Settings")
+    equal(filters.Common.Trinket, true)
+    equal(t.H.UI.Tabs.Visuals, nil); equal(t.H.UI.Tabs.Movement, nil)
+end)
+
+test("pickup timeout, stop and changed filter can clear a pending remote target", function()
+    local t = context()
+    local H = t.H
+    H.S.Player.CharacterAdded = signal()
+    H.Farm.ClearTarget = function() H.State.CurrentTarget = nil end
+    H.Farm.SkipTarget = function() H.Farm.ClearTarget() end
+    H.Farm.Ignore = function() end
+    H.Farm.TryBackgroundPickup = function() return true end
+    H.Core.DropsFolder = function() return {} end
+    assert(load(read("modules/fps_patch.lua")))()(H)
+    local drop = {Parent = {}, IsDescendantOf = function() return true end}
+    H.State.CurrentTarget, H.State.Running = drop, true
+    assert(H.Farm.TryBackgroundPickup(drop))
+    H.Farm.ClearTarget(); equal(H.State.CurrentTarget, nil)
+    H.Farm.Step(1); equal(H.State.CurrentTarget, nil)
+    H.State.CurrentTarget = drop; H.Farm.TryBackgroundPickup(drop)
+    H.State.Running = false; H.Farm.ClearTarget(); H.Farm.Step(1)
+    equal(H.State.CurrentTarget, nil)
+end)
+
+local extrasFile = io.open("../endhub-extras/loader.lua", "r")
+if extrasFile then
+    local extrasSource = extrasFile:read("*a"); extrasFile:close()
+    table.clear = function(t) for k in pairs(t) do t[k] = nil end end
+    test("actual Extras context disconnects its own tools, preserves the main controller and rolls back failure", function()
+        local t = context()
+        local mainLibrary = {}
+        t.H.UI = {Library = mainLibrary}
+        local mainConnections = #t.H.Connections
+        local extraSignal, unloads, failAt = signal(), 0, nil
+        game.HttpGet = function(_, url) return assert(url:match("/modules/(.+)%.lua")) end
+        local feature = {movement = "Movement", boss = "Boss", players = "PlayerTools", visuals = "Visuals",
+            no_killbrick = "NoKillbrick", legacy_features = "Legacy", mob_farm = "MobFarm"}
+        loadstring = function(name) return function() return function(ctx)
+            ctx.Core.Connect(extraSignal, function() end)
+            if name == "ui" then ctx.UI = {Library = {Unload = function() unloads = unloads + 1 end}} end
+            if feature[name] then ctx[feature[name]] = {Reset = function() end, Stop = function() end} end
+            if name == failAt then error("download/init failure") end
+        end end end
+        local init = assert(load(extrasSource))()
+        local ctx = init(t.H, "https://test/extras")
+        assert(t.H.Boss == ctx.Boss and #ctx.Connections > 0)
+        equal(#t.H.Connections, mainConnections)
+        ctx.State.Status = "shared status"; equal(t.H.State.Status, "shared status")
+        ctx.CloseExtras(); ctx.CloseExtras()
+        equal(unloads, 1); equal(t.H.State.Unloaded, false); equal(t.H.Boss, nil)
+        equal(t.H.UI.Library, mainLibrary)
+        for _, c in ipairs(extraSignal.connections) do equal(c.Connected, false) end
+        failAt = "boss_ui"
+        equal(pcall(init, t.H, "https://test/extras"), false)
+        equal(unloads, 2); equal(t.H.State.Unloaded, false)
+        for _, c in ipairs(extraSignal.connections) do equal(c.Connected, false) end
+    end)
+end
+
 for _, entry in ipairs(tests) do
     local ok, err = pcall(entry[2])
     assert(ok, entry[1] .. "\n" .. tostring(err))
     output("PASS " .. entry[1])
 end
 output(tostring(#tests) .. " server cycle tests passed (simulated services)")
+

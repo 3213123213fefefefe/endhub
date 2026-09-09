@@ -9,8 +9,8 @@ return function(H)
     H.Config.LootWhitelist = type(H.Config.LootWhitelist) == "table" and H.Config.LootWhitelist or {}
     if H.Config.BackgroundPickup == nil then H.Config.BackgroundPickup = true end
 
-    local ignored = {}
-    local counted = {}
+    local ignored = setmetatable({}, {__mode = "k"})
+    local counted = setmetatable({}, {__mode = "k"})
     local lastFlyStep = 0
 
     local function isIgnored(obj)
@@ -269,8 +269,8 @@ return function(H)
             if usedRemote then
                 H.State.Status = "PICKUP REMOTE " .. target.Name
             else
-                H.State.Status = "PICKUP E " .. target.Name
-                C.PressKey(0x45)
+                local sent = C.PressKey(0x45)
+                H.State.Status = sent and ("PICKUP E " .. target.Name) or "WAIT PICKUP REMOTE / WINDOW FOCUS"
             end
 
             local before = target
@@ -282,10 +282,11 @@ return function(H)
                         H.State.Collected = H.State.Collected + 1
                         H.State.LootPickupSerial = (H.State.LootPickupSerial or 0) + 1
                     end
-                else
+                    if H.State.CurrentTarget == before then F.ClearTarget() end
+                elseif not usedRemote then
                     F.Ignore(before, 2)
+                    if H.State.CurrentTarget == before then F.ClearTarget() end
                 end
-                if H.State.CurrentTarget == before then F.ClearTarget() end
             end)
         end
     end
@@ -323,3 +324,4 @@ return function(H)
         end
     end)
 end
+

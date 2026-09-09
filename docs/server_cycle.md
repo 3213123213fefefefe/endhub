@@ -36,3 +36,4 @@ Após verificar os jogadores, o ciclo procura os botões visíveis do jogo: **En
 ## Morte e respawn
 
 Coleta e venda ficam bloqueadas sem personagem vivo, durante a troca de personagem e por cinco segundos após o novo personagem estar disponível. O menu precisa fechar antes da retomada. Morrer cancela a venda pendente e descarta a posição de retorno do personagem anterior. Esta proteção não remove insanity de áreas do mapa.
+

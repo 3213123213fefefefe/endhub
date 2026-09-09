@@ -68,7 +68,7 @@ return function(H)
     end
 
     function P.LoadConfig()
-        local saved = C.ReadJson(H.Persistence.ConfigFile)
+        local saved = C.ReadProfile(H.Persistence.ConfigFile, "config.json")
         if type(saved) == "table" then
             mergeInto(H.Config, saved)
             H.State.PersistenceStatus = "CONFIG LOADED"
@@ -100,7 +100,7 @@ return function(H)
     end
 
     ENV.ENDHUB_BOT_POSITIONS = ENV.ENDHUB_BOT_POSITIONS or {}
-    local diskPositions = C.ReadJson(H.Persistence.PositionsFile)
+    local diskPositions = C.ReadProfile(H.Persistence.PositionsFile, "bot_positions.json")
     if type(diskPositions) == "table" then
         for name, coords in pairs(diskPositions) do
             if ENV.ENDHUB_BOT_POSITIONS[name] == nil then
@@ -173,9 +173,10 @@ return function(H)
                     end
                 end
             end)
-            task.wait(1.5)
+            task.wait(5)
         end
     end)
 
     print("[EndHub] persistence loaded | config + keybinds + bot positions")
 end
+

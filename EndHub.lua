@@ -129,28 +129,19 @@ local order = {
     "modules/persistence.lua",
     "modules/farm.lua",
     "modules/sell.lua",
-    "modules/movement.lua",
-    "modules/boss.lua",
-    "modules/players.lua",
-    "modules/visuals.lua",
     "modules/ui.lua",
     "modules/farm_ui.lua",
-    "modules/speed_ui.lua",
-    "modules/no_killbrick.lua",
     "modules/ui_compat.lua",
-    "modules/seller_tools.lua",
     "modules/trinket_sell_fix.lua",
-    "modules/persistence_ui.lua",
-    "modules/legacy_features.lua",
-    "modules/keybinds.lua",
-    "modules/boss_ui.lua",
-    "modules/mob_farm.lua",
+    "modules/trinket_rarity.lua",
+    "modules/trinket_route.lua",
+    "modules/extras.lua",
 }
 
-for _, path in ipairs(order) do loadModule(path) end
 
 function H:Unload()
     if self.State.Unloaded then return end
+    if self.Extras then self.Extras.Close() end
 
     if self.PersistenceManager and self.PersistenceManager.SaveAll then
         pcall(function() self.PersistenceManager.SaveAll(true) end)
@@ -193,13 +184,20 @@ function H:Unload()
     print("[EndHub] unloaded")
 end
 
+for _, path in ipairs(order) do loadModule(path) end
+
+
 -- The Work loader installs its existing extensions first, then the cycle gates.
 -- Direct users of EndHub.lua still receive the same integration.
 if not ENV.ENDHUB_WORK_LOADING then
+    loadModule("modules/fps_patch.lua")
     loadModule("modules/server_cycle.lua")
+    loadModule("modules/menu_first_screen_patch.lua")
+    loadModule("modules/server_hop_quality_patch.lua")
     H.State.Ready = true
     H.ServerCycle.Bootstrap()
 end
 
 print("[EndHub] COMPLETE modular build loaded")
 return H
+

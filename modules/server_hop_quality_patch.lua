@@ -9,7 +9,7 @@ return function(H)
     local Teleports = game:GetService("TeleportService")
     local PLACE = game.PlaceId
     local JOB = tostring(game.JobId)
-    local visitedFile = "EndHub/serverhop_visited.json"
+    local visitedFile = H.Persistence and H.Persistence.VisitedFile or "EndHub/serverhop_visited.json"
 
     cfg.ServerHopVisitedResetSeconds = math.clamp(tonumber(cfg.ServerHopVisitedResetSeconds) or 480, 300, 600)
     cfg.ServerHopPingTarget = math.max(20, tonumber(cfg.ServerHopPingTarget) or 120)
@@ -212,7 +212,8 @@ return function(H)
                 R.Hopping = false
                 R.HopOwned = false
                 R.Failed = true
-                status("HOP PAUSED: " .. tostring(lastError) .. " | USE RETRY")
+                R.HopRetryAt = tick() + 60 + math.random(0, 15)
+                status("HOP PAUSED: " .. tostring(lastError) .. " | AUTO RETRY IN 60-75s")
             end
         end)
         return true
@@ -225,3 +226,4 @@ return function(H)
     print(string.format("[EndHub] quality server hop loaded | visited TTL=%ds | pages=%d | prefers lowest API ping",
         cfg.ServerHopVisitedResetSeconds, cfg.ServerHopPages))
 end
+

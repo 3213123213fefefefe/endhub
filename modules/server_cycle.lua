@@ -136,7 +136,7 @@ fn()
         return true
     end
 
-    local visitedFile = "EndHub/serverhop_visited.json"
+    local visitedFile = H.Persistence and H.Persistence.VisitedFile or "EndHub/serverhop_visited.json"
     local visits = C.ReadJson(visitedFile) or {}
     local function pruneVisits()
         for key, time in pairs(visits) do
@@ -452,6 +452,7 @@ fn()
                     if #getconnections(event) > 0 then firesignal(event) return end
                 end
             end
+            if C.InputFocused and not C.InputFocused() then error("waiting for direct GUI activation / window focus") end
             local position, size = target.AbsolutePosition, target.AbsoluteSize
             local x, y = position.X + size.X / 2, position.Y + size.Y / 2
             -- AbsolutePosition already locates this row. Adding the top inset
@@ -509,7 +510,7 @@ fn()
         stopWork(true) -- New arrivals pause before the query; keep a sale's return position.
         status("CHECKING PLAYER " .. tostring(player.UserId))
         task.spawn(function()
-            while alive(generation) and (R.Checking or R.Workers >= 4) do task.wait(0.1) end
+            while alive(generation) and (R.Checking or R.Workers >= 2) do task.wait(0.1) end
             if not alive(generation) or player.Parent ~= Players then return end
             R.Workers = R.Workers + 1
             local success, roles
@@ -518,11 +519,12 @@ fn()
                 if success or not alive(generation) or player.Parent ~= Players then break end
                 if attempt < 3 then task.wait(attempt) end
             end
-            R.Workers = math.max(0, R.Workers - 1)
+            if generation == R.Generation then R.Workers = math.max(0, R.Workers - 1) end
             if not alive(generation) or R.Hopping or player.Parent ~= Players or R.Checks[player] ~= record then return end
             if not success then
                 record.State = "unknown"
-                status("ROLE CHECK FAILED " .. player.UserId .. " | LOOT PAUSED - USE RETRY")
+                record.RetryAt = tick() + 30 + math.random(0, 10)
+                status("ROLE CHECK FAILED " .. player.UserId .. " | AUTO RETRY IN 30-40s | " .. tostring(roles))
                 return
             end
             record.State = "allowed"
@@ -542,6 +544,7 @@ fn()
         R.Enabled, cfg.ServerCycleEnabled = true, true
         R.Generation = R.Generation + 1
         R.Checks, R.Checking, R.Failed, R.Hopping = {}, true, false, false
+        R.Workers, R.HopRetryAt = 0, nil
         R.HopOwned = false
         R.StartedAt = tick()
         R.ServerEventsTried, R.ServerEventsExhausted = {}, false
@@ -637,6 +640,13 @@ fn()
     task.spawn(function()
         while not R.Closed and not H.State.Unloaded do
             if alive() and not R.Hopping then
+                for player, record in pairs(R.Checks) do
+                    if record.State == "unknown" and record.RetryAt and tick() >= record.RetryAt then
+                        R.Checks[player] = nil
+                        if player.Parent == Players then enqueue(player) end
+                    end
+                end
+                if R.Failed and R.HopRetryAt and tick() >= R.HopRetryAt then R.Retry() end
                 if not R.CharacterReady() then R.PauseForCharacter() end
                 if R.Allowed and R.MenuStep() then stopWork(true) end
                 tryResume()
@@ -671,3 +681,4 @@ fn()
     end
     return R
 end
+

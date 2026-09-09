@@ -22,10 +22,22 @@ return function(H)
     local C = H.Core
     local ENV = getgenv()
 
+    -- Executor workspaces can be shared by every Roblox process. Never use
+    -- one writable profile for different accounts/maps. The optional profile
+    -- suffix also supports separate configurations for the same account.
+    local priorProfile
+    pcall(function() priorProfile = game:GetService("TeleportService"):GetTeleportSetting("EndHubProfile") end)
+    local profile = tostring(ENV.ENDHUB_PROFILE or priorProfile or "default"):gsub("[^%w_-]", "_"):sub(1, 48)
+    pcall(function() game:GetService("TeleportService"):SetTeleportSetting("EndHubProfile", profile) end)
+    local directory = "EndHub/accounts/" .. tostring(H.S.Player.UserId)
+        .. "/" .. tostring(game.PlaceId) .. "/" .. profile
     H.Persistence = {
-        Dir = "EndHub",
-        SellerFile = "EndHub/seller_positions.json",
-        KeybindFile = "EndHub/keybinds.json",
+        Dir = directory,
+        SellerFile = directory .. "/seller_positions.json",
+        KeybindFile = directory .. "/keybinds.json",
+        ConfigFile = directory .. "/config.json",
+        PositionsFile = directory .. "/bot_positions.json",
+        VisitedFile = directory .. "/serverhop_visited.json",
     }
 
     function C.Connect(signal, callback)
@@ -82,37 +94,52 @@ return function(H)
             and C.DropPart(model) ~= nil
     end
 
-    function C.PressKey(code)
-        if keypress and keyrelease then
-            task.spawn(function()
-                pcall(function()
-                    keypress(code)
-                    task.wait(0.05)
-                    keyrelease(code)
-                end)
-            end)
-            return
+    local focused = true
+    if UIS.WindowFocused then C.Connect(UIS.WindowFocused, function() focused = true end) end
+    if UIS.WindowFocusReleased then C.Connect(UIS.WindowFocusReleased, function() focused = false end) end
+    function C.InputFocused()
+        local probe = isrbxactive or iswindowactive
+        if type(probe) == "function" then
+            local ok, active = pcall(probe)
+            if ok then return active == true end
         end
+        return focused
+    end
 
-        local map = {
-            [0x45] = Enum.KeyCode.E,
-            [0x31] = Enum.KeyCode.One,
-        }
+    local keysDown = {}
+    function C.PressKey(code)
+        if H.State.Unloaded or not C.InputFocused() or keysDown[code] then return false end
+        local map = {[0x45] = Enum.KeyCode.E, [0x31] = Enum.KeyCode.One}
         local key = map[code]
-        if not key then return end
+        if not key then return false end
+        keysDown[code] = true
         task.spawn(function()
-            pcall(function()
-                VIM:SendKeyEvent(true, key, false, game)
+            if not H.State.Unloaded and C.InputFocused() then
+                pcall(function() VIM:SendKeyEvent(true, key, false, game) end)
                 task.wait(0.05)
-                VIM:SendKeyEvent(false, key, false, game)
-            end)
+                -- Always release a key we pressed, even if focus changes.
+                pcall(function() VIM:SendKeyEvent(false, key, false, game) end)
+            end
+            keysDown[code] = nil
         end)
+        return true
     end
 
     local function ensureDir()
         if not isfolder or not makefolder then return false end
-        local ok, exists = pcall(isfolder, H.Persistence.Dir)
-        if ok and not exists then pcall(makefolder, H.Persistence.Dir) end
+        local prefix = ""
+        for part in H.Persistence.Dir:gmatch("[^/]+") do
+            prefix = prefix == "" and part or prefix .. "/" .. part
+            local ok, exists = pcall(isfolder, prefix)
+            if not ok then return false end
+            if not exists then
+                local made = pcall(makefolder, prefix)
+                if not made then
+                    local checked, nowExists = pcall(isfolder, prefix)
+                    if not checked or not nowExists then return false end
+                end
+            end
+        end
         return true
     end
 
@@ -135,8 +162,16 @@ return function(H)
         return pcall(writefile, path, raw)
     end
 
+    function C.ReadProfile(path, legacyName)
+        local own = C.ReadJson(path)
+        if own then return own end
+        local legacy = legacyName and C.ReadJson("EndHub/" .. legacyName)
+        if legacy then C.WriteJson(path, legacy) end
+        return legacy
+    end
+
     ENV.ENDHUB_SELLER_POSITIONS = ENV.ENDHUB_SELLER_POSITIONS or {}
-    local savedSellerDisk = C.ReadJson(H.Persistence.SellerFile)
+    local savedSellerDisk = C.ReadProfile(H.Persistence.SellerFile, "seller_positions.json")
     if type(savedSellerDisk) == "table" then
         for k, v in pairs(savedSellerDisk) do
             if ENV.ENDHUB_SELLER_POSITIONS[k] == nil then ENV.ENDHUB_SELLER_POSITIONS[k] = v end
@@ -205,7 +240,7 @@ return function(H)
     end
 
     ENV.ENDHUB_KEYBINDS = ENV.ENDHUB_KEYBINDS or {}
-    local savedKeysDisk = C.ReadJson(H.Persistence.KeybindFile)
+    local savedKeysDisk = C.ReadProfile(H.Persistence.KeybindFile, "keybinds.json")
     if type(savedKeysDisk) == "table" then
         for k, v in pairs(savedKeysDisk) do
             if ENV.ENDHUB_KEYBINDS[k] == nil then ENV.ENDHUB_KEYBINDS[k] = v end
@@ -216,11 +251,23 @@ return function(H)
         C.WriteJson(H.Persistence.KeybindFile, ENV.ENDHUB_KEYBINDS)
     end
 
+    local capacityLabel, capacityScanAt = nil, -math.huge
     function C.ReadCapacity()
         local pg = H.S.Player:FindFirstChild("PlayerGui")
         if not pg then return nil, nil end
 
-        local fallbackA, fallbackB
+        if capacityLabel and capacityLabel.Parent and capacityLabel:IsDescendantOf(pg) then
+            local a, b = tostring(capacityLabel.Text):match("(%d+)%s*/%s*(%d+)")
+            a, b = tonumber(a), tonumber(b)
+            if a and b and b > 0 then
+                H.State.InventoryCurrent, H.State.InventoryMax, H.State.InventoryPercent = a, b, a / b * 100
+                return a, b
+            end
+        end
+        if tick() - capacityScanAt < 1 then return nil, nil end
+        capacityScanAt = tick()
+        capacityLabel = nil
+        local fallbackA, fallbackB, fallbackLabel
         for _, obj in ipairs(pg:GetDescendants()) do
             if obj:IsA("TextLabel") or obj:IsA("TextButton") then
                 local text = tostring(obj.Text or "")
@@ -240,12 +287,13 @@ return function(H)
                     end
                     if insideInventory then
                         local fa, fb = string.match(text, "^%s*(%d+)%s*/%s*(%d+)%s*$")
-                        if fa and fb then fallbackA, fallbackB = fa, fb end
+                        if fa and fb then fallbackA, fallbackB, fallbackLabel = fa, fb, obj end
                     end
                 end
                 if a and b then
                     a, b = tonumber(a), tonumber(b)
                     if a and b and b > 0 then
+                        capacityLabel = obj
                         H.State.InventoryCurrent = a
                         H.State.InventoryMax = b
                         H.State.InventoryPercent = (a / b) * 100
@@ -258,6 +306,7 @@ return function(H)
         if fallbackA and fallbackB then
             local a, b = tonumber(fallbackA), tonumber(fallbackB)
             if a and b and b > 0 then
+                capacityLabel = fallbackLabel
                 H.State.InventoryCurrent = a
                 H.State.InventoryMax = b
                 H.State.InventoryPercent = (a / b) * 100
@@ -353,3 +402,4 @@ return function(H)
         return tool and tool.Name or "None"
     end
 end
+
