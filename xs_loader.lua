@@ -6,4 +6,6 @@ local function run(path)
     return fn()
 end
 run("xs_menu_entry.lua")
-return run("xeno_solara_trinket.lua")
+local bot = run("xeno_solara_trinket.lua")
+run("xs_embedded_route.lua")
+return bot
