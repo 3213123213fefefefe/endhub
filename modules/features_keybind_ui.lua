@@ -11,8 +11,6 @@ return function(H)
     local saved = ENV.ENDHUB_KEYBINDS
     local actions = {}
 
-    -- Old builds could bind Show / Hide UI as a normal action. Ignore that
-    -- stale value so an old MouseButton1 binding cannot keep toggling the menu.
     saved.feature_show_ui = nil
 
     local function keyName(key)
@@ -34,11 +32,11 @@ return function(H)
 
         group:AddLabel(text):AddKeyPicker(optionId, {
             Default = initial,
-            Mode = "Press",
+            Mode = "Hold",
             Text = text,
             NoUI = false,
             Callback = function(value)
-                if value == false or H.State.Unloaded or not H.Core.InputFocused() then return end
+                if value ~= true or H.State.Unloaded or not H.Core.InputFocused() then return end
                 task.spawn(fn)
             end,
             ChangedCallback = function(newKey)
@@ -72,7 +70,7 @@ return function(H)
     addKey(left, "farm_sell", "Farm -> Full -> Sell", function()
         flip("EH_FarmSell", function() end)
     end)
-    -- Fly and Movement Noclip keybinds are configured inline beside their switches.
+    -- Fly and Noclip are configured inline beside their switches.
     addKey(left, "reset_character", "Reset Character", function() H.Movement.ResetCharacter() end)
     addKey(left, "teleport_player", "Teleport Selected", function() H.PlayerTools.TeleportSelected() end)
     addKey(left, "boss", "Boss Bot", function()
@@ -87,7 +85,7 @@ return function(H)
     Library.ToggleKeybind = Enum.KeyCode[menuInitial]
     left:AddLabel("Show / Hide UI"):AddKeyPicker("EH_MenuToggleKey", {
         Default = menuInitial,
-        Mode = "Press",
+        Mode = "Hold",
         Text = "Show / Hide UI",
         NoUI = false,
         Callback = function() end,
