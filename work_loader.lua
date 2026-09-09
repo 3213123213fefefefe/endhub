@@ -1,6 +1,6 @@
--- One owner per Roblox client. AutoExecute + teleport queue share this guard;
+-- One owner per Roblox client. AutoExecute + teleport queue share this guard.
 local ENV = getgenv()
-local JOB, VERSION = tostring(game.JobId), "multi-client-9"
+local JOB, VERSION = tostring(game.JobId), "multi-client-10"
 local boot = ENV.ENDHUB_BOOT
 if boot and boot.JobId == JOB and boot.Loading then
     while boot.Loading and ENV.ENDHUB_BOOT == boot do task.wait(0.1) end
@@ -33,7 +33,7 @@ local ok, result = pcall(function()
     hub.WorkBuild = VERSION
     hub.State.Ready = true
     hub.ServerCycle.Bootstrap()
-    if hub.Extras then hub.Extras.Open() end
+    if hub.Features then hub.Features.Load() end
     print("[EndHub Loader] " .. VERSION .. " | account=" .. tostring(hub.S.Player.UserId))
     return hub
 end)
