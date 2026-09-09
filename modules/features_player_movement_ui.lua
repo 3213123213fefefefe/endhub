@@ -24,7 +24,6 @@ return function(H)
     ------------------------------------------------------------------------
     -- Movement
     ------------------------------------------------------------------------
-    -- Fly toggle and its settings live in the same box.
     local flyGroup = Tabs.Movement:AddLeftGroupbox("Fly")
     local moveGroup = Tabs.Movement:AddRightGroupbox("Movement")
 
@@ -34,18 +33,14 @@ return function(H)
     })
     flyToggle:AddKeyPicker("EH_InlineFlyKey", {
         Default = saved.feature_fly or "None",
-        Mode = "Press",
+        Mode = "Toggle",
+        SyncToggleState = true,
         Text = "Fly",
         NoUI = false,
-        Callback = function(value)
-            if value == false or H.State.Unloaded or not H.Core.InputFocused() then return end
-            if Toggles.EH_Fly then Toggles.EH_Fly:SetValue(not Toggles.EH_Fly.Value) end
-        end,
         ChangedCallback = function(newKey)
             saveKey("feature_fly", newKey)
         end,
     })
-
     flyGroup:AddSlider("EH_FlySpeed", {
         Text = "Fly speed", Default = H.Config.MovementFlySpeed,
         Min = 20, Max = 400, Rounding = 0,
@@ -65,18 +60,14 @@ return function(H)
     })
     noclipToggle:AddKeyPicker("EH_InlineNoclipKey", {
         Default = saved.feature_noclip or "None",
-        Mode = "Press",
+        Mode = "Toggle",
+        SyncToggleState = true,
         Text = "Noclip",
         NoUI = false,
-        Callback = function(value)
-            if value == false or H.State.Unloaded or not H.Core.InputFocused() then return end
-            if Toggles.EH_Noclip then Toggles.EH_Noclip:SetValue(not Toggles.EH_Noclip.Value) end
-        end,
         ChangedCallback = function(newKey)
             saveKey("feature_noclip", newKey)
         end,
     })
-
     moveGroup:AddToggle("EH_SpeedModifierEnabled", {
         Text = "Speed modifier", Default = false,
         Callback = function(v) H.Movement.SetSpeedModifier(v) end,
