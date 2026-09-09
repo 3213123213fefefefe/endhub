@@ -63,7 +63,8 @@ local function context(options)
     options = options or {}
     local t = {advance = scheduler(), logs = {}, queries = {}, queued = {}, teleports = {}, starts = 0,
         moves = 0, saleSteps = 0, routeTeleports = 0, roles = options.roles or {}, loot = true,
-        settings = options.settings or {}, disk = options.disk or {}, loaded = true, rootReady = true}
+        settings = options.settings or {}, disk = options.disk or {}, loaded = true, rootReady = true,
+        root = {Position = {X = 10, Y = 20, Z = 30}}}
     local env = options.env or {}
     getgenv = function() return env end
     print = function(...) t.logs[#t.logs + 1] = table.concat({...}, " ") end
@@ -145,10 +146,14 @@ local function context(options)
         Connect = function(s, fn) local c = s:Connect(fn) H.Connections[#H.Connections + 1] = c return c end,
         ReadJson = function(path) return t.disk[path] end,
         WriteJson = function(path, value) t.disk[path] = value return true end,
-        Root = function() return t.rootReady and {} or nil end,
+        Root = function() return t.rootReady and t.root or nil end,
         Humanoid = function() return t.humanoid end,
         DropsFolder = function() return {} end, Noclip = function() end,
-        Teleport = function() t.routeTeleports = t.routeTeleports + 1 return true end,
+        Teleport = function(position)
+            t.routeTeleports = t.routeTeleports + 1
+            t.lastRouteTeleport = position
+            return true
+        end,
     }
     H.Farm = {
         Start = function() t.starts = t.starts + 1 H.State.Running = true end,
@@ -480,6 +485,26 @@ test("death stops farm and sales; a new living character waits five seconds", fu
     t.advance(1); equal(t.starts, 2)
     t.player.Character = {} -- Replacement is also guarded even without a sampled death.
     t.H.Farm.Step(); equal(t.H.State.Running, false)
+end)
+
+test("death while looting returns to the saved position after the guarded respawn", function()
+    local t = context()
+    local routeResumes = 0
+    t.H.ResumeTrinketRouteAfterDeath = function() routeResumes = routeResumes + 1 return true end
+    t.R.Bootstrap(); t.advance(1); equal(t.starts, 1)
+    t.H.Farm.Step() -- Records the last safe collection position.
+    local saved = t.R.LastLootPosition
+    assert(saved and saved.X == 10 and saved.Y == 20 and saved.Z == 30)
+    t.humanoid.Health = 0
+    t.H.Farm.Step()
+    assert(t.R.DeathReturn and t.H.State.Running == false)
+    t.player.Character = {}
+    t.humanoid = {Health = 100}
+    t.H.Farm.Step()
+    t.advance(6.5)
+    equal(t.lastRouteTeleport, saved)
+    equal(routeResumes, 1)
+    equal(t.starts, 2)
 end)
 
 test("actual Work loader deduplicates callers, patches before bootstrap, and cleans failed loads", function()

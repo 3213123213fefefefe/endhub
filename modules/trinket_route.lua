@@ -12,12 +12,20 @@ return function(H)
     local streaming = false
     local markerFolder, markers = nil, {}
     local refresh
+    local updateMarkerColors
     local syncingUi = false
     local function pointWait(p)
         return math.clamp(tonumber(p and p[4]) or cfg.TrinketRouteWait, 0, 30)
     end
     function H.GetTrinketRouteStatus()
         return {Index = index, Total = #route, Remaining = waiting and math.max(0, waitUntil - tick()) or 0}
+    end
+    function H.ResumeTrinketRouteAfterDeath()
+        if index < 1 or not route[index] then return false end
+        waiting = true
+        waitUntil = tick() + pointWait(route[index])
+        updateMarkerColors()
+        return true
     end
     local function save()
         if H.PersistenceManager and H.PersistenceManager.SaveConfig then
@@ -73,7 +81,7 @@ return function(H)
         if i == index then return Color3.fromRGB(70, 255, 120) end
         return Color3.fromRGB(70, 190, 255)
     end
-    local function updateMarkerColors()
+    updateMarkerColors = function()
         for i, marker in ipairs(markers) do
             local color = markerColor(i)
             pcall(function()
