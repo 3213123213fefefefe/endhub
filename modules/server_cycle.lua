@@ -184,6 +184,7 @@ fn()
         if not alive() or R.Hopping then return false end
         R.Hopping = true -- Acquire before the first yielding operation.
         R.HopOwned = true
+        R.DeathReturn, R.LastLootPosition, R.LastLootCharacter = nil, nil, nil
         stopWork()
         local generation = R.Generation
         status("HOP REQUESTED: " .. tostring(reason or "manual"))
@@ -274,8 +275,14 @@ fn()
     end
     function R.PauseForCharacter()
         if not R.CharacterPaused then
-            if cfg.ReturnToLootAfterDeath and R.LastLootPosition and tick() - (R.LastLootPositionAt or 0) <= 3 then
-                R.DeathReturn = R.LastLootPosition
+            local hum = C.Humanoid()
+            local diedWhileLooting = cfg.ReturnToLootAfterDeath
+                and R.LastLootPosition and R.LastLootCharacter == Player.Character
+                and tick() - (R.LastLootAt or -math.huge) <= 3
+                and (not hum or hum.Health <= 0)
+            if diedWhileLooting then
+                R.DeathReturn = {Position = R.LastLootPosition, Character = R.LastLootCharacter}
+                print("[EndHub Death] saved loot return position=" .. tostring(R.LastLootPosition))
             end
             R.CharacterPaused = true
             stopWork()
@@ -290,13 +297,17 @@ fn()
         return oldStart(...)
     end
     function H.Farm.Step(...)
+        local root, hum = C.Root(), C.Humanoid()
+        if root and root.Position and hum and hum.Health > 0 and R.Enabled and R.Allowed
+            and H.State.Running and H.State.FarmSellPhase == "FARM" and not cfg.AutoSell then
+            local p = root.Position
+            R.LastLootPosition = Vector3.new(p.X, p.Y, p.Z)
+            R.LastLootCharacter = Player.Character
+            R.LastLootAt = tick()
+        end
         if not R.CharacterReady() then R.PauseForCharacter() return end
         if not R.MenuEntered then return end
         if R.Enabled and not R.Allowed then return end
-        local root = C.Root()
-        if root and R.Allowed and H.State.FarmSellPhase ~= 'SELL' and not cfg.AutoSell then
-            R.LastLootPosition, R.LastLootPositionAt = root.Position, tick()
-        end
         return oldStep(...)
     end
     if H.Sell then
@@ -495,11 +506,15 @@ fn()
         R.CharacterPaused = false
         if not C.Root() then status("WAIT CHARACTER") return end
         if R.DeathReturn then
-            local destination = R.DeathReturn
-            R.DeathReturn = nil
-            C.Teleport(destination)
-            if H.ResumeTrinketRouteAfterDeath then H.ResumeTrinketRouteAfterDeath() end
-            task.spawn(function() pcall(function() Player:RequestStreamAroundAsync(destination, 2) end) end)
+            local destination = R.DeathReturn.Position
+            R.DeathReturn, R.LastLootPosition, R.LastLootCharacter = nil, nil, nil
+            C.Noclip(true)
+            if C.Teleport(destination) then
+                if H.ResumeTrinketRouteAfterDeath then pcall(H.ResumeTrinketRouteAfterDeath) end
+                task.spawn(function() pcall(function() Player:RequestStreamAroundAsync(destination, 2) end) end)
+                print("[EndHub Death] returned to loot position=" .. tostring(destination))
+                status("RETURNED AFTER DEATH | RESUMING LOOT")
+            end
         end
         R.Allowed, R.IdleSince = true, nil
         cfg.AutoFarmSell = cfg.ServerCycleAutoSell
@@ -601,7 +616,7 @@ fn()
         R.Enabled, cfg.ServerCycleEnabled = false, false
         R.Hopping, R.Failed, R.Checking = false, false, false
         R.HopOwned = false
-        R.DeathReturn, R.LastLootPosition = nil, nil
+        R.DeathReturn, R.LastLootPosition, R.LastLootCharacter = nil, nil, nil
         intent(false)
         persist()
         status("STOPPED")
@@ -723,7 +738,7 @@ fn()
         group:AddToggle("EH_CycleAutoSell", {Text = "Sell when full", Default = cfg.ServerCycleAutoSell,
             Callback = function(value) cfg.ServerCycleAutoSell = value if R.Allowed then cfg.AutoFarmSell = value end end})
         group:AddToggle("EH_ReturnToLootAfterDeath", {Text = "Return to loot position after death", Default = cfg.ReturnToLootAfterDeath,
-            Callback = function(value) cfg.ReturnToLootAfterDeath = value end})
+            Callback = function(value) cfg.ReturnToLootAfterDeath = value if not value then R.DeathReturn = nil end end})
         group:AddLabel("EH_CycleStatus", {Text = "Cycle: waiting", DoesWrap = true})
         group:AddLabel("Checks group 36025827 before looting and on new arrivals. Member is ignored. Stop pauses this session. Every fresh load starts automatically. A saved route is required for automatic loot hops.", true)
         task.spawn(function()
@@ -741,4 +756,3 @@ fn()
     end
     return R
 end
-
