@@ -83,7 +83,7 @@ return function(H)
             local ok, err = pcall(function()
                 loadMain(ctx, "modules/extras_movement.lua")
                 loadPinned(ctx, "players", true)
-                loadPinned(ctx, "visuals", true)
+                loadMain(ctx, "modules/visuals.lua")
                 loadPinned(ctx, "boss", true)
                 loadPinned(ctx, "mob_farm", true)
 
