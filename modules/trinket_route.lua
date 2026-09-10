@@ -6,6 +6,7 @@ return function(H)
     cfg.TrinketSinglePointLoop = cfg.TrinketSinglePointLoop == true
     cfg.TrinketSinglePoints = type(cfg.TrinketSinglePoints) == 'table' and cfg.TrinketSinglePoints or {}
     cfg.TrinketSinglePointWait = math.clamp(tonumber(cfg.TrinketSinglePointWait) or 1, 0, 10)
+    cfg.TrinketStreamTimeout = math.clamp(tonumber(cfg.TrinketStreamTimeout) or 1.5, 0.25, 3)
     cfg.TrinketRoutes = type(cfg.TrinketRoutes) == 'table' and cfg.TrinketRoutes or {}
     cfg.TrinketRoutes[mapKey] = type(cfg.TrinketRoutes[mapKey]) == 'table' and cfg.TrinketRoutes[mapKey] or {}
     cfg.TrinketRouteWait = math.clamp(tonumber(cfg.TrinketRouteWait) or 1, 1, 10)
@@ -253,7 +254,15 @@ return function(H)
         H.State.Status = singleMode and 'STREAMING SINGLE LOOP POINT' or ('STREAMING ROUTE POINT ' .. index .. '/' .. #route)
         drawMarkers()
         task.spawn(function()
-            pcall(function() H.S.Player:RequestStreamAroundAsync(destination, 2) end)
+            -- RequestStreamAroundAsync can ignore its nominal timeout and yield
+            -- forever on some executors/servers. Never let that freeze the route.
+            local streamDone = false
+            task.spawn(function()
+                pcall(function() H.S.Player:RequestStreamAroundAsync(destination, cfg.TrinketStreamTimeout) end)
+                streamDone = true
+            end)
+            local streamDeadline = tick() + cfg.TrinketStreamTimeout
+            while not streamDone and tick() < streamDeadline and not H.State.Unloaded do task.wait(0.05) end
             if H.State.Unloaded or not H.State.Running or cfg.AutoSell
                 or (cfg.AutoFarmSell and H.State.FarmSellPhase == 'SELL')
                 or destinationIndex ~= index then
@@ -266,7 +275,7 @@ return function(H)
                 waitUntil = tick() + pointWait
                 H.State.Status = singleMode and 'SINGLE POINT LOOT LOOP' or ('ROUTE POINT ' .. index .. '/' .. #route)
                 print((singleMode and '[EndHub Single Loop]' or '[EndHub Route] point=' .. index .. '/' .. #route)
-                    .. ' | streamed=true | wait=' .. pointWait .. ' | radius=' .. cfg.TrinketRouteLootRadius
+                    .. ' | stream=' .. (streamDone and 'ready' or 'timeout') .. ' | wait=' .. pointWait .. ' | radius=' .. cfg.TrinketRouteLootRadius
                     .. ' | position=' .. tostring(destination))
             end
             streaming = false
