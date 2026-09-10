@@ -17,6 +17,18 @@ return function(H)
         Text = "Show Rank", Default = H.Config.ESPShowRank,
         Callback = function(v) H.Config.ESPShowRank = v end,
     })
+    left:AddToggle("EH_ShowPrestige", {
+        Text = "Show Prestige", Default = H.Config.ESPShowPrestige,
+        Callback = function(v) H.Config.ESPShowPrestige = v end,
+    })
+    left:AddToggle("EH_ShowMaxHP", {
+        Text = "Show Max HP", Default = H.Config.ESPShowMaxHealth,
+        Callback = function(v) H.Config.ESPShowMaxHealth = v end,
+    })
+    left:AddToggle("EH_ShowSanity", {
+        Text = "Show Sanity", Default = H.Config.ESPShowSanity,
+        Callback = function(v) H.Config.ESPShowSanity = v end,
+    })
     left:AddToggle("EH_ShowDistance", {
         Text = "Show Distance", Default = H.Config.ESPShowDistance,
         Callback = function(v) H.Config.ESPShowDistance = v end,
