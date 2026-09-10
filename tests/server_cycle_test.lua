@@ -121,6 +121,10 @@ local function context(options)
     end
     local http = {JSONDecode = function(_, value) return value end, UrlEncode = function(_, value) return value end}
     game = {PlaceId = 125503525638054, JobId = options.job or "current-job"}
+    if options.settings == nil then
+        t.settings.EndHubServerCycleV1 = {Enabled = true, PlaceId = game.PlaceId, UserId = 1,
+            SourceJob = "previous-job", CreatedAt = os.time(), AutoSell = true}
+    end
     function game:IsLoaded() return t.loaded end
     function game:GetService(name)
         return ({Players = players, GroupService = groups, TeleportService = teleports})[name]
@@ -337,25 +341,24 @@ test("matching detections keep the server even when pickup fails", function()
     equal(t.R.OnLootComplete(), true); t.advance(1); equal(#t.teleports, 1)
 end)
 
-test("new load forces Play and farm-sell ON even after Stop or saved OFF", function()
+test("manual injection stays stopped; an active EndHub hop resumes once", function()
+    local manual = context({settings = {}})
+    manual.R.Bootstrap(); manual.advance(2)
+    equal(manual.starts, 0); equal(manual.H.Config.AutoFarmSell, false); equal(manual.R.Enabled, false)
+
     local t = context()
-    t.R.Bootstrap(); t.advance(1)
-    local settings, queued = t.settings, t.queued[1]
-    t = context({job = "new-job", settings = settings, config = {ServerCycleEnabled = false}})
-    t.R.Bootstrap(); equal(t.starts, 0); t.advance(1)
-    equal(t.starts, 1); equal(t.queries[1], 1); equal(#t.queued, 1)
-    t.R.Stop()
-    local bootCalls = 0
-    game.HttpGet = function() return "loader" end
-    loadstring = function() return function() bootCalls = bootCalls + 1 end end
-    assert(load(queued))()
-    equal(bootCalls, 1)
-    t.H.Config.ServerCycleEnabled, t.H.Config.ServerCycleAutoSell = false, false
-    t.R.Bootstrap(); t.advance(1)
-    assert(t.H.Config.AutoFarmSell); assert(t.H.State.Running)
-    t.H:Unload()
-    for _, c in ipairs(t.H.Connections) do equal(c.Connected, false) end
-    t.advance(1); equal(t.H.State.Running, false)
+    t.R.Bootstrap(); t.advance(1); equal(t.starts, 1)
+    t.serverResponse = function() return {data = {{id = "next-job", playing = 1, maxPlayers = 16}}} end
+    t.R.RequestHop("continuity test"); t.advance(0)
+    local settings = t.settings
+    assert(settings.EndHubServerCycleV1.Enabled)
+    local resumed = context({job = "next-job", settings = settings})
+    resumed.R.Bootstrap(); resumed.advance(1)
+    equal(resumed.starts, 1); assert(resumed.H.Config.AutoFarmSell)
+    -- The setting was consumed; manually loading again in the same server stays idle.
+    local reloaded = context({job = "next-job", settings = settings})
+    reloaded.R.Bootstrap(); reloaded.advance(1)
+    equal(reloaded.starts, 0); equal(reloaded.H.Config.AutoFarmSell, false)
 end)
 
 test("AutoExecute-only executors and external teleport failures remain manageable", function()

@@ -15,8 +15,10 @@ return function(H)
         Status = "STOPPED", IdleSince = nil, StartedAt = 0,
     }
     H.ServerCycle = R
-    cfg.ServerCycleEnabled = true -- Always start on a fresh load, regardless of saved OFF state.
-    cfg.ServerCycleAutoSell = true
+    -- A normal injection must stay idle. Continuity is granted only by a
+    -- recent teleport setting written by this same account and source job.
+    cfg.ServerCycleEnabled = false
+    cfg.ServerCycleAutoSell = false
     cfg.ServerCycleIdleSeconds = math.max(10, tonumber(cfg.ServerCycleIdleSeconds) or 30)
     cfg.ServerCycleMaxSeconds = math.max(0, tonumber(cfg.ServerCycleMaxSeconds) or 0)
     cfg.ReturnToLootAfterDeath = cfg.ReturnToLootAfterDeath ~= false
@@ -48,7 +50,10 @@ return function(H)
     end
     local function intent(enabled)
         pcall(function()
-            Teleports:SetTeleportSetting(SETTING, {Enabled = enabled, PlaceId = PLACE})
+            Teleports:SetTeleportSetting(SETTING, {
+                Enabled = enabled, PlaceId = PLACE, UserId = Player.UserId,
+                SourceJob = JOB, CreatedAt = os.time(), AutoSell = cfg.ServerCycleAutoSell == true,
+            })
         end)
     end
     -- Bounded waiting also handles a group/HTTP request that never returns.
@@ -106,7 +111,6 @@ return function(H)
         or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
     function R.QueueBootstrap()
         if not R.Enabled then return false end
-        intent(true)
         if ENV.ENDHUB_QUEUED_JOB == JOB then
             R.Continuity = "TELEPORT QUEUED"
             return true
@@ -189,6 +193,7 @@ fn()
         local generation = R.Generation
         status("HOP REQUESTED: " .. tostring(reason or "manual"))
         persist()
+        intent(true)
         R.QueueBootstrap()
         visit(JOB)
         task.spawn(function()
@@ -575,8 +580,9 @@ fn()
             tryResume()
         end)
     end
-    function R.Start()
+    function R.Start(manual)
         if R.Closed or H.State.Unloaded or R.Enabled then return end
+        if manual == true then cfg.ServerCycleAutoSell = true end
         R.Enabled, cfg.ServerCycleEnabled = true, true
         R.Generation = R.Generation + 1
         R.Checks, R.Checking, R.Failed, R.Hopping = {}, true, false, false
@@ -585,7 +591,6 @@ fn()
         R.StartedAt = tick()
         R.ServerEventsTried, R.ServerEventsExhausted = {}, false
         stopWork()
-        intent(true)
         persist()
         local generation = R.Generation
         status("WAIT GAME / PLAYERS")
@@ -662,6 +667,7 @@ fn()
         print("[EndHub Teleport] user=" .. tostring(Player.UserId) .. " | job=" .. JOB
             .. " | event=" .. R.LastTeleportEvent .. " | owned=" .. tostring(R.HopOwned))
         if state == Enum.TeleportState.Started or state == Enum.TeleportState.InProgress then
+            intent(true)
             stopWork()
             local wasHopping = R.Hopping
             R.Hopping = true
@@ -730,7 +736,7 @@ fn()
     local tabs, options = H.UI and H.UI.Tabs, H.UI and H.UI.Options
     if tabs and tabs.Botting then
         local group = tabs.Botting:AddRightGroupbox("Loot + ServerHop")
-        group:AddButton({Text = "START CONTINUOUS CYCLE", Func = R.Start})
+        group:AddButton({Text = "START CONTINUOUS CYCLE", Func = function() R.Start(true) end})
         group:AddButton({Text = "STOP CONTINUOUS CYCLE", Func = R.Stop})
         group:AddButton({Text = "RETRY CHECK / HOP", Func = R.Retry})
         group:AddButton({Text = "PRINT PAUSE DIAGNOSTIC", Func = function() print("[EndHub Pause] " .. R.Diagnostic()) end})
@@ -740,7 +746,7 @@ fn()
         group:AddToggle("EH_ReturnToLootAfterDeath", {Text = "Return to loot position after death", Default = cfg.ReturnToLootAfterDeath,
             Callback = function(value) cfg.ReturnToLootAfterDeath = value if not value then R.DeathReturn = nil end end})
         group:AddLabel("EH_CycleStatus", {Text = "Cycle: waiting", DoesWrap = true})
-        group:AddLabel("Checks group 36025827 before looting and on new arrivals. Member is ignored. Stop pauses this session. Every fresh load starts automatically. A saved route is required for automatic loot hops.", true)
+        group:AddLabel("Checks group 36025827 before looting and on new arrivals. Member is ignored. It resumes automatically only after an EndHub server hop.", true)
         task.spawn(function()
             while not R.Closed and not H.State.Unloaded do
                 if options and options.EH_CycleStatus then
@@ -751,8 +757,22 @@ fn()
         end)
     end
     function R.Bootstrap()
-        cfg.ServerCycleEnabled, cfg.ServerCycleAutoSell = true, true
-        R.Start()
+        if R.Enabled or R.Closed or H.State.Unloaded then return end
+        local ok, data = pcall(function() return Teleports:GetTeleportSetting(SETTING) end)
+        local age = ok and type(data) == "table" and os.time() - (tonumber(data.CreatedAt) or 0) or math.huge
+        local resume = ok and type(data) == "table" and data.Enabled == true
+            and tonumber(data.PlaceId) == tonumber(PLACE)
+            and tonumber(data.UserId) == tonumber(Player.UserId)
+            and tostring(data.SourceJob or "") ~= "" and tostring(data.SourceJob) ~= JOB
+            and age >= 0 and age <= 180
+        intent(false) -- Consume continuity so a later manual reload stays idle.
+        if resume then
+            cfg.ServerCycleAutoSell = data.AutoSell == true
+            R.Start(false)
+        else
+            cfg.ServerCycleEnabled, cfg.ServerCycleAutoSell, cfg.AutoFarmSell = false, false, false
+            status("STOPPED | MANUAL START REQUIRED")
+        end
     end
     return R
 end
