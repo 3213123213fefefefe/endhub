@@ -206,6 +206,13 @@ return function(H)
         if not singleMode and (not cfg.TrinketExplore or #route == 0) then return previousStep(dt) end
         local root, hum = C.Root(), C.Humanoid()
         if not root or not hum or hum.Health <= 0 then return previousStep(dt) end
+        if streaming then
+            H.State.Status = 'STREAMING ROUTE POINT ' .. math.max(1, index)
+            C.Noclip(true)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            return
+        end
         if waiting then
             if tick() < waitUntil then
                 H.State.Status = 'WAITING AT ROUTE POINT ' .. index
@@ -240,22 +247,30 @@ return function(H)
             p = route[index]
         end
         local destination = Vector3.new(p[1], p[2], p[3])
-        C.Noclip(true)
-        if not C.Teleport(destination) then return end
-        waiting = true
         local pointWait = singleMode and cfg.TrinketSinglePointWait or (tonumber(p[4]) or cfg.TrinketRouteWait)
-        waitUntil = tick() + pointWait
-        H.State.Status = singleMode and 'SINGLE POINT LOOT LOOP' or ('ROUTE POINT ' .. index .. '/' .. #route)
+        local destinationIndex = index
+        streaming = true
+        H.State.Status = singleMode and 'STREAMING SINGLE LOOP POINT' or ('STREAMING ROUTE POINT ' .. index .. '/' .. #route)
         drawMarkers()
-        print((singleMode and '[EndHub Single Loop]' or '[EndHub Route] point=' .. index .. '/' .. #route)
-            .. ' | wait=' .. pointWait .. ' | radius=' .. cfg.TrinketRouteLootRadius .. ' | position=' .. tostring(destination))
-        if not streaming then
-            streaming = true
-            task.spawn(function()
-                pcall(function() H.S.Player:RequestStreamAroundAsync(destination, 2) end)
+        task.spawn(function()
+            pcall(function() H.S.Player:RequestStreamAroundAsync(destination, 2) end)
+            if H.State.Unloaded or not H.State.Running or cfg.AutoSell
+                or (cfg.AutoFarmSell and H.State.FarmSellPhase == 'SELL')
+                or destinationIndex ~= index then
                 streaming = false
-            end)
-        end
+                return
+            end
+            C.Noclip(true)
+            if C.Teleport(destination) then
+                waiting = true
+                waitUntil = tick() + pointWait
+                H.State.Status = singleMode and 'SINGLE POINT LOOT LOOP' or ('ROUTE POINT ' .. index .. '/' .. #route)
+                print((singleMode and '[EndHub Single Loop]' or '[EndHub Route] point=' .. index .. '/' .. #route)
+                    .. ' | streamed=true | wait=' .. pointWait .. ' | radius=' .. cfg.TrinketRouteLootRadius
+                    .. ' | position=' .. tostring(destination))
+            end
+            streaming = false
+        end)
     end
     function H.ResumeTrinketRouteAfterDeath()
         if cfg.TrinketSinglePointLoop and singlePoint then
