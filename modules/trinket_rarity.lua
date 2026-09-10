@@ -11,11 +11,12 @@ return function(H)
     cfg.TrinketESPRarities = type(cfg.TrinketESPRarities) == 'table' and cfg.TrinketESPRarities or allRarities()
     cfg.PickupRarities = type(cfg.PickupRarities) == 'table' and cfg.PickupRarities or allRarities()
     cfg.PickupRarityFilter = cfg.PickupRarityFilter == true
+    cfg.TrinketESP = cfg.TrinketESP == true
+    cfg.TrinketESPDistance = tonumber(cfg.TrinketESPDistance) or 2000
     cfg.PickupBlueTomes = cfg.PickupBlueTomes == true
     cfg.AlwaysPickupEnabled = cfg.AlwaysPickupEnabled == true
     cfg.AlwaysPickupLoot = type(cfg.AlwaysPickupLoot) == 'table' and cfg.AlwaysPickupLoot or {}
-    cfg.TrinketESP = cfg.TrinketESP == true
-    cfg.TrinketESPDistance = tonumber(cfg.TrinketESPDistance) or 2000
+
     local function metadata(obj)
         local value = obj:GetAttribute('Rarity')
         if type(value) == 'string' and value:match('%S') then return C.NormalizeRarity(value) end
@@ -39,9 +40,9 @@ return function(H)
         end
         return found or 'Unknown'
     end
-    local cache = setmetatable({}, {__mode = "k"})
+    local cache = setmetatable({}, {__mode = 'k'})
     local function rarityOf(obj)
-        if not obj then return "Unknown" end
+        if not obj then return 'Unknown' end
         local old = cache[obj]
         if old and tick() - old.At < 0.5 then return old.Value end
         local value = scanRarity(obj)
@@ -49,28 +50,25 @@ return function(H)
         return value
     end
     H.TrinketRarity = {Read = rarityOf}
-    local previousAllowed = F.Allowed
+
     local function isTome(obj)
-        local name = tostring(F.LootName(obj) or ''):lower()
-        if name:find('tome', 1, true) then return true end
+        if tostring(F.LootName(obj)):lower():find('tome', 1, true) then return true end
         for _, key in ipairs({'Category', 'ItemType', 'Type'}) do
             local value = obj:GetAttribute(key)
-            if type(value) == 'string' and value:lower() == 'tome' then return true end
-            local child = obj:FindFirstChild(key)
-            if child and child:IsA('StringValue') and tostring(child.Value):lower() == 'tome' then return true end
+            if tostring(value):lower():find('tome', 1, true) then return true end
         end
         return false
     end
+    local previousAllowed = F.Allowed
     function F.Allowed(obj)
-        -- Additive exceptions remain allowed even when the independent name or
-        -- rarity filters are currently aimed at other loot.
-        if C.IsTrinketDrop(obj) then
-            if cfg.AlwaysPickupEnabled and cfg.AlwaysPickupLoot[F.LootName(obj)] == true then return true end
-            if cfg.PickupBlueTomes and rarityOf(obj) == 'Rare' and isTome(obj) then return true end
-        end
+        if not obj then return false end
+        local name = F.LootName(obj)
+        if cfg.AlwaysPickupEnabled and cfg.AlwaysPickupLoot[name] == true then return true end
+        if cfg.PickupBlueTomes and rarityOf(obj) == 'Rare' and isTome(obj) then return true end
         if not previousAllowed(obj) then return false end
         return not cfg.PickupRarityFilter or cfg.PickupRarities[rarityOf(obj)] == true
     end
+
     local function selection(value)
         local out = {}
         if type(value) == 'table' then
@@ -80,9 +78,7 @@ return function(H)
     end
     local function rarityChoices()
         local values, seen = {}, {}
-        local function add(value)
-            if not seen[value] then seen[value] = true values[#values + 1] = value end
-        end
+        local function add(value) if not seen[value] then seen[value] = true values[#values + 1] = value end end
         for _, value in ipairs(defaults) do add(value) end
         for value in pairs(cfg.TrinketESPRarities) do add(value) end
         for value in pairs(cfg.PickupRarities) do add(value) end
@@ -92,46 +88,37 @@ return function(H)
         end
         return values
     end
+
     local initialPickup = selection(cfg.PickupRarities)
-    local initialAlways = selection(cfg.AlwaysPickupLoot)
     local pickupGroup = H.UI.Tabs.Botting:AddRightGroupbox('Pickup Rarity')
     pickupGroup:AddToggle('EH_PickupRarityFilter', {
         Text = 'Only pick selected rarities', Default = cfg.PickupRarityFilter,
         Callback = function(value) cfg.PickupRarityFilter = value F.ClearTarget() end,
     })
-    pickupGroup:AddToggle('EH_PickupBlueTomes', {
-        Text = 'Also pick blue tomes', Default = cfg.PickupBlueTomes,
-        Callback = function(value) cfg.PickupBlueTomes = value F.ClearTarget() end,
-    })
-    pickupGroup:AddToggle('EH_AlwaysPickupEnabled', {
-        Text = 'Always pick selected loot', Default = cfg.AlwaysPickupEnabled,
-        Callback = function(value) cfg.AlwaysPickupEnabled = value F.ClearTarget() end,
-    })
-    local function alwaysChoices()
-        local values, seen = {}, {}
-        local function add(value)
-            value = tostring(value)
-            if value ~= '' and not seen[value] then seen[value] = true values[#values + 1] = value end
-        end
-        for name in pairs(cfg.AlwaysPickupLoot) do add(name) end
-        for _, name in ipairs(F.GetLootNames()) do add(name) end
-        table.sort(values, function(a, b) return a:lower() < b:lower() end)
-        if #values == 0 then values[1] = 'No loot detected' end
-        return values
-    end
-    pickupGroup:AddDropdown('EH_AlwaysPickupLoot', {
-        Text = 'Loot that bypasses all filters', Values = alwaysChoices(), Multi = true, Searchable = true,
-        Callback = function(value) cfg.AlwaysPickupLoot = selection(value) F.ClearTarget() end,
-    })
     pickupGroup:AddDropdown('EH_PickupRarities', {
         Text = 'Rarities to pick', Values = rarityChoices(), Multi = true, Searchable = true,
         Callback = function(value) cfg.PickupRarities = selection(value) F.ClearTarget() end,
     })
-    pickupGroup:AddLabel('Blue tomes are an additive exception: when enabled, Rare tomes are picked even if the other filters exclude them.', true)
     cfg.PickupRarities = initialPickup
-    cfg.AlwaysPickupLoot = initialAlways
+    pickupGroup:AddToggle('EH_PickupBlueTomes', {Text = 'Also pick blue tomes', Default = cfg.PickupBlueTomes,
+        Callback = function(value) cfg.PickupBlueTomes = value F.ClearTarget() end})
+    pickupGroup:AddToggle('EH_AlwaysPickupEnabled', {Text = 'Always pick selected loot', Default = cfg.AlwaysPickupEnabled,
+        Callback = function(value) cfg.AlwaysPickupEnabled = value F.ClearTarget() end})
+    local function lootChoices()
+        local values, seen = {}, {}
+        local function add(value) if value and value ~= '' and not seen[value] then seen[value] = true values[#values + 1] = value end end
+        for name in pairs(cfg.AlwaysPickupLoot) do add(name) end
+        local folder = C.DropsFolder()
+        if folder then for _, obj in ipairs(folder:GetChildren()) do if C.IsTrinketDrop(obj) then add(F.LootName(obj)) end end end
+        table.sort(values) if #values == 0 then values[1] = 'No visible loot' end
+        return values
+    end
+    local initialLoot = selection(cfg.AlwaysPickupLoot)
+    pickupGroup:AddDropdown('EH_AlwaysPickupLoot', {Text = 'Loot that bypasses all filters', Values = lootChoices(), Multi = true, Searchable = true,
+        Callback = function(value) cfg.AlwaysPickupLoot = selection(value) F.ClearTarget() end})
+    cfg.AlwaysPickupLoot = initialLoot
+
     local options = H.UI.Options
-    -- Dropdown constructors may call their callback with an empty initial selection.
     local function refresh()
         local values = rarityChoices()
         for _, item in ipairs({{'EH_TrinketESPRarities', 'TrinketESPRarities'}, {'EH_PickupRarities', 'PickupRarities'}}) do
@@ -139,13 +126,8 @@ return function(H)
             local saved = selection(cfg[item[2]])
             if option then option:SetValues(values) option:SetValue(saved) end
         end
-        local alwaysOption = options.EH_AlwaysPickupLoot
-        if alwaysOption then
-            local saved = selection(cfg.AlwaysPickupLoot)
-            alwaysOption:SetValues(alwaysChoices())
-            alwaysOption:SetValue(saved)
-            cfg.AlwaysPickupLoot = saved
-        end
+        local lootOption = options.EH_AlwaysPickupLoot
+        if lootOption then local saved = selection(cfg.AlwaysPickupLoot) lootOption:SetValues(lootChoices()) lootOption:SetValue(saved) end
     end
     local function diagnose()
         refresh()
@@ -165,5 +147,5 @@ return function(H)
     pickupGroup:AddButton({Text = 'Refresh rarities / log drops', Func = diagnose})
     refresh()
 
-    print("[EndHub] pickup rarity filter loaded")
+    print('[EndHub] pickup rarity filter loaded')
 end

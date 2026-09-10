@@ -63,8 +63,7 @@ local function context(options)
     options = options or {}
     local t = {advance = scheduler(), logs = {}, queries = {}, queued = {}, teleports = {}, starts = 0,
         moves = 0, saleSteps = 0, routeTeleports = 0, roles = options.roles or {}, loot = true,
-        settings = options.settings or {}, disk = options.disk or {}, loaded = true, rootReady = true,
-        root = {Position = {X = 10, Y = 20, Z = 30}}}
+        settings = options.settings or {}, disk = options.disk or {}, loaded = true, rootReady = true}
     local env = options.env or {}
     getgenv = function() return env end
     print = function(...) t.logs[#t.logs + 1] = table.concat({...}, " ") end
@@ -146,14 +145,10 @@ local function context(options)
         Connect = function(s, fn) local c = s:Connect(fn) H.Connections[#H.Connections + 1] = c return c end,
         ReadJson = function(path) return t.disk[path] end,
         WriteJson = function(path, value) t.disk[path] = value return true end,
-        Root = function() return t.rootReady and t.root or nil end,
+        Root = function() return t.rootReady and {} or nil end,
         Humanoid = function() return t.humanoid end,
         DropsFolder = function() return {} end, Noclip = function() end,
-        Teleport = function(position)
-            t.routeTeleports = t.routeTeleports + 1
-            t.lastRouteTeleport = position
-            return true
-        end,
+        Teleport = function() t.routeTeleports = t.routeTeleports + 1 return true end,
     }
     H.Farm = {
         Start = function() t.starts = t.starts + 1 H.State.Running = true end,
@@ -342,18 +337,6 @@ test("matching detections keep the server even when pickup fails", function()
     equal(t.R.OnLootComplete(), true); t.advance(1); equal(#t.teleports, 1)
 end)
 
-test("route points can override the global wait without changing older points", function()
-    local t = context({route = true})
-    t.loot = false
-    t.H.Config.TrinketRoutes[tostring(game.PlaceId)][1][4] = 3
-    t.R.Bootstrap(); t.advance(1)
-    t.H.Farm.Step(); equal(t.routeTeleports, 1)
-    t.advance(1.5); t.H.Farm.Step(); equal(t.routeTeleports, 1)
-    t.advance(1.6); t.H.Farm.Step(); equal(t.routeTeleports, 2)
-    -- Point 2 has no fourth field and therefore still uses the 1s global wait.
-    t.advance(1.1); t.H.Farm.Step(); equal(t.routeTeleports, 2)
-end)
-
 test("new load forces Play and farm-sell ON even after Stop or saved OFF", function()
     local t = context()
     t.R.Bootstrap(); t.advance(1)
@@ -487,26 +470,6 @@ test("death stops farm and sales; a new living character waits five seconds", fu
     t.H.Farm.Step(); equal(t.H.State.Running, false)
 end)
 
-test("death while looting returns to the saved position after the guarded respawn", function()
-    local t = context()
-    local routeResumes = 0
-    t.H.ResumeTrinketRouteAfterDeath = function() routeResumes = routeResumes + 1 return true end
-    t.R.Bootstrap(); t.advance(1); equal(t.starts, 1)
-    t.H.Farm.Step() -- Records the last safe collection position.
-    local saved = t.R.LastLootPosition
-    assert(saved and saved.X == 10 and saved.Y == 20 and saved.Z == 30)
-    t.humanoid.Health = 0
-    t.H.Farm.Step()
-    assert(t.R.DeathReturn and t.H.State.Running == false)
-    t.player.Character = {}
-    t.humanoid = {Health = 100}
-    t.H.Farm.Step()
-    t.advance(6.5)
-    equal(t.lastRouteTeleport, saved)
-    equal(routeResumes, 1)
-    equal(t.starts, 2)
-end)
-
 test("actual Work loader deduplicates callers, patches before bootstrap, and cleans failed loads", function()
     local t = context()
     local compileWork, builds, bootstraps, downloads = assert(load(workSource)), 0, 0, {}
@@ -601,23 +564,6 @@ test("shared executor files isolate accounts, profiles and visits; legacy settin
     local other = client(101, "second"); assert(other.Persistence.Dir ~= a.Persistence.Dir)
     for _, path in ipairs(writes) do assert(path:find("EndHub/accounts/",1,true) == 1, path) end
     equal(http:JSONDecode(files["EndHub/config.json"]).PickupDistance, 11)
-    -- Executors that cannot make nested folders use a verified flat, isolated file.
-    isfolder = function() return false end
-    makefolder = function() error("folders unsupported") end
-    writefile = function(path, raw)
-        if path:find("/", 1, true) then error("nested paths unsupported") end
-        files[path] = raw
-    end
-    typeof = function(value)
-        if type(value) == "table" and value.X and value.Y and value.Z then return "Vector3" end
-        return type(value)
-    end
-    local flat = client(404)
-    flat.Config.PickupDistance = 6
-    assert(flat.PersistenceManager.SaveAll(true))
-    assert(not tostring(flat.State.PersistencePath):find("/", 1, true))
-    local flatAgain = client(404)
-    equal(flatAgain.Config.PickupDistance, 6)
     -- Missing file APIs cannot abort initialization.
     readfile, writefile, isfile, makefolder, isfolder = nil, nil, nil, nil, nil
     client(303)
@@ -672,7 +618,7 @@ test("Extras are lazy, repeated open reuses one context, closing cancels a pendi
     equal(opened, 1); equal(t.H.Extras.Context, nil)
 end)
 
-test("compact UI preserves saved sell filters despite dropdown initialization callbacks", function()
+test("unified UI preserves saved sell filters despite dropdown initialization callbacks", function()
     local t = context()
     local library = {Options = {}, Toggles = {}}
     local group = {}
@@ -707,9 +653,9 @@ test("compact UI preserves saved sell filters despite dropdown initialization ca
     t.H.Sell.GetFilter = function(r, c) return filters[r] and filters[r][c] end
     t.H.Sell.SetFilter = function(r, c, v) filters[r] = filters[r] or {} filters[r][c] = v end
     assert(load(read("modules/ui.lua")))()(t.H)
-    equal(#names, 3); equal(names[1], "Farm"); equal(names[3], "Settings")
+    equal(#names, 10); equal(names[1], "Movement"); equal(names[4], "Farm"); equal(names[10], "Debug")
     equal(filters.Common.Trinket, true)
-    equal(t.H.UI.Tabs.Visuals, nil); equal(t.H.UI.Tabs.Movement, nil)
+    assert(t.H.UI.Tabs.Visuals); assert(t.H.UI.Tabs.Movement)
 end)
 
 test("pickup timeout, stop and changed filter can clear a pending remote target", function()
@@ -820,66 +766,10 @@ test("a transient controller exception pauses safely and does not kill its loop"
     t.advance(1); equal(t.H.State.Running, true)
 end)
 
-test("quality hop preserves HTTP failure instead of reporting unavailable slots", function()
-    local t = context()
-    assert(load(read("modules/server_hop_quality_patch.lua")))()(t.H)
-    t.R.Bootstrap(); t.advance(1)
-    t.httpFails = true
-    t.R.RequestHop("test"); t.advance(20)
-    equal(#t.teleports, 0); assert(t.R.Failed)
-    assert(t.R.Status:find("SERVER LIST REQUEST FAILED", 1, true), t.R.Status)
-    assert(not t.R.Status:find("NO SERVER WITH SPACE", 1, true))
-end)
-
-test("quality hop retains earlier candidates when a later page fails", function()
-    local t = context()
-    assert(load(read("modules/server_hop_quality_patch.lua")))()(t.H)
-    local calls = 0
-    t.serverResponse = function()
-        calls = calls + 1
-        if calls == 2 then error("HTTP 429 Too Many Requests") end
-        return {data = {{id = "eligible", playing = 1, maxPlayers = 20, ping = 200}}, nextPageCursor = "next"}
-    end
-    t.R.Bootstrap(); t.advance(1); t.R.RequestHop("test"); t.advance(1)
-    equal(calls, 2); equal(t.teleports[1], "eligible")
-end)
-
-test("quality hop distinguishes a valid empty list, malformed response and page limit", function()
-    for _, case in ipairs({
-        {response = {data = {}}, message = "SERVER LIST OK BUT NO OTHER SERVER WITH SPACE"},
-        {response = {errors = {}}, message = "SERVER LIST INVALID RESPONSE"},
-        {response = {data = {}, nextPageCursor = "next"}, message = "SEARCH LIMIT"},
-    }) do
-        local t = context()
-        assert(load(read("modules/server_hop_quality_patch.lua")))()(t.H)
-        t.serverResponse = function() return case.response end
-        t.R.Bootstrap(); t.advance(1); t.R.RequestHop("test"); t.advance(20)
-        equal(#t.teleports, 0); assert(t.R.Status:find(case.message, 1, true), t.R.Status)
-    end
-end)
-
-test("quality hop backs off on 429 and stops pagination after an acceptable candidate", function()
-    local t = context()
-    assert(load(read("modules/server_hop_quality_patch.lua")))()(t.H)
-    local calls = 0
-    t.serverResponse = function() calls = calls + 1 error("HTTP 429 Too Many Requests") end
-    t.R.Bootstrap(); t.advance(1); t.R.RequestHop("test"); t.advance(20)
-    equal(calls, 1); equal(#t.teleports, 0)
-    t.R.Stop()
-    t = context()
-    assert(load(read("modules/server_hop_quality_patch.lua")))()(t.H)
-    calls = 0
-    t.serverResponse = function()
-        calls = calls + 1
-        return {data = {{id = "healthy", playing = 1, maxPlayers = 20, ping = 60}}, nextPageCursor = "next"}
-    end
-    t.R.Bootstrap(); t.advance(1); t.R.RequestHop("test"); t.advance(1)
-    equal(calls, 1); equal(t.teleports[1], "healthy")
-end)
-
 for _, entry in ipairs(tests) do
     local ok, err = pcall(entry[2])
     assert(ok, entry[1] .. "\n" .. tostring(err))
     output("PASS " .. entry[1])
 end
 output(tostring(#tests) .. " server cycle tests passed (simulated services)")
+

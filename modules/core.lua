@@ -143,13 +143,7 @@ return function(H)
         return true
     end
 
-    -- Some executors expose readfile/writefile but cannot create nested
-    -- directories reliably. Keep an account/map/profile-specific flat fallback
-    -- so settings never silently disappear after a successful-looking save.
-    local function fallbackPath(path)
-        return tostring(path):gsub("[^%w_.-]", "_")
-    end
-
+    local function fallbackPath(path) return tostring(path):gsub("[^%w_.-]", "_") end
     local function readRaw(path)
         if not readfile then return nil end
         if isfile then
@@ -159,17 +153,12 @@ return function(H)
         local okRead, raw = pcall(readfile, path)
         return okRead and type(raw) == "string" and raw or nil
     end
-
     function C.ReadJson(path)
-        local raw = readRaw(path)
-        local used = path
-        if not raw then used, raw = fallbackPath(path), readRaw(fallbackPath(path)) end
+        local raw, used = readRaw(path), path
+        if not raw then used = fallbackPath(path) raw = readRaw(used) end
         if not raw then return nil end
         local okJson, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
-        if okJson and type(decoded) == "table" then
-            H.State.PersistencePath = used
-            return decoded
-        end
+        if okJson and type(decoded) == "table" then H.State.PersistencePath = used return decoded end
         return nil
     end
 
@@ -177,16 +166,13 @@ return function(H)
         if not writefile then return false end
         local okJson, raw = pcall(HttpService.JSONEncode, HttpService, value)
         if not okJson then return false end
-        local function writeAndVerify(target)
-            local okWrite = pcall(writefile, target, raw)
-            if not okWrite then return false end
-            local check = readRaw(target)
-            if readfile and check ~= raw then return false end
-            H.State.PersistencePath = target
-            return true
-        end
-        if ensureDir() and writeAndVerify(path) then return true end
-        return writeAndVerify(fallbackPath(path))
+        ensureDir()
+        local ok = pcall(writefile, path, raw)
+        if ok and (not readfile or readRaw(path) ~= nil) then H.State.PersistencePath = path return true end
+        local flat = fallbackPath(path)
+        ok = pcall(writefile, flat, raw)
+        if ok then H.State.PersistencePath = flat return true end
+        return false
     end
 
     function C.ReadProfile(path, legacyName)
@@ -431,3 +417,4 @@ return function(H)
         return tool and tool.Name or "None"
     end
 end
+
