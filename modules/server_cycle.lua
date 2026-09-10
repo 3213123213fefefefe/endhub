@@ -268,7 +268,7 @@ fn()
         end
         if character ~= R.ReadyCharacter then
             R.ReadyCharacter = character
-            R.CharacterReadyAt = tick() + 5
+            R.CharacterReadyAt = tick() + 3
             R.MenuEntered, R.MenuClearSince = false, nil
         end
         return tick() >= (R.CharacterReadyAt or math.huge)
@@ -286,7 +286,7 @@ fn()
             end
             R.CharacterPaused = true
             stopWork()
-            status("WAIT PLAY / RESPAWN + 5 SECONDS")
+            status("WAIT PLAY / RESPAWN + 3 SECONDS")
         end
     end
     local oldStart, oldStep = H.Farm.Start, H.Farm.Step

@@ -452,7 +452,7 @@ test("menu enters Endure, existing Slot 1 and current server before starting loo
     getconnections, firesignal = nil, nil
 end)
 
-test("death stops farm and sales; a new living character waits five seconds", function()
+test("death stops farm and sales; a new living character waits three seconds", function()
     local t = context()
     t.R.Bootstrap(); t.advance(1); equal(t.starts, 1)
     t.H.Config.AutoSell = true
@@ -464,8 +464,8 @@ test("death stops farm and sales; a new living character waits five seconds", fu
     t.H.Farm.Start(); t.H.Sell.Start(); equal(t.starts, 1)
     t.advance(5); equal(t.starts, 1)
     t.player.Character = {}; t.humanoid = {Health = 100}
-    t.H.Farm.Step(); t.advance(4.9); equal(t.starts, 1)
-    t.advance(1); equal(t.starts, 2)
+    t.H.Farm.Step(); t.advance(2.9); equal(t.starts, 1)
+    t.advance(0.2); equal(t.starts, 2)
     t.player.Character = {} -- Replacement is also guarded even without a sampled death.
     t.H.Farm.Step(); equal(t.H.State.Running, false)
 end)
@@ -772,4 +772,3 @@ for _, entry in ipairs(tests) do
     output("PASS " .. entry[1])
 end
 output(tostring(#tests) .. " server cycle tests passed (simulated services)")
-
