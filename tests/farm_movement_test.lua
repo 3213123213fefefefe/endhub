@@ -17,7 +17,7 @@ local function signal()
 end
 local function context(options)
     options = options or {}
-    local t = {now = 0, jobs = {}, tweens = {}, hops = 0, pickups = 0, callbacks = {}}
+    local t = {now = 0, jobs = {}, tweens = {}, hops = 0, pickups = 0, callbacks = {}, raycasts = {}, floorY = options.groundY}
     local vector = {}
     vector.__add = function(a,b) return Vector3.new(a.X+b.X,a.Y+b.Y,a.Z+b.Z) end
     vector.__sub = function(a,b) return Vector3.new(a.X-b.X,a.Y-b.Y,a.Z-b.Z) end
@@ -30,10 +30,20 @@ local function context(options)
     Vector3 = {new = function(x,y,z) return setmetatable({X=x,Y=y,Z=z},vector) end}
     Vector3.zero = Vector3.new(0,0,0)
     local frame = {__mul = function(a) return a end}
-    CFrame = {new = function(pos) return setmetatable({Position=pos,Rotation={}},frame) end}
+    CFrame = {new = function(pos) return setmetatable({Position=pos,Rotation={},LookVector=Vector3.new(0,0,-1)},frame) end}
     CFrame.lookAt = CFrame.new
     TweenInfo = {new = function(duration, easing) return {Time=duration,EasingStyle=easing} end}
-    Enum = {EasingStyle={Linear="Linear"},PlaybackState={Completed="Completed",Cancelled="Cancelled"}}
+    Enum = {EasingStyle={Linear="Linear"},PlaybackState={Completed="Completed",Cancelled="Cancelled"},
+        HumanoidRigType={R6="R6",R15="R15"},RaycastFilterType={Exclude="Exclude"}}
+    RaycastParams = {new = function() return {} end}
+    workspace = {}
+    function workspace:Raycast(origin, direction, params)
+        t.raycasts[#t.raycasts+1] = {Origin=origin,Direction=direction,Params=params}
+        if options.raycastError then error("ground query unavailable") end
+        if t.floorY and t.floorY <= origin.Y and t.floorY >= origin.Y + direction.Y then
+            return {Position=Vector3.new(origin.X,t.floorY,origin.Z),Normal=Vector3.new(0,options.floorNormalY or 1,0)}
+        end
+    end
     math.clamp = function(n,a,b) return math.max(a,math.min(n,b)) end
     table.clear = function(tab) for k in pairs(tab) do tab[k]=nil end end
     typeof = function(value) return getmetatable(value)==vector and "Vector3" or type(value) end
@@ -46,15 +56,17 @@ local function context(options)
     task.spawn = function(fn) enqueue(fn,0) end
     task.delay = function(delay,fn) enqueue(fn,delay) end
     task.wait = function(delay) return coroutine.yield(delay or 1/30) end
-    local heartbeat, added = signal(),signal()
-    local root = setmetatable({Parent=true,_frame=CFrame.new(Vector3.zero)}, {
+    local heartbeat, added, stepped = signal(),signal(),signal()
+    local root = setmetatable({Parent=true,_frame=CFrame.new(Vector3.new(0,options.startY or 0,0)),
+        Size=Vector3.new(2,2,1),CollisionGroup="Default",CanCollide=true}, {
         __index=function(r,k)
             if k=="Position" then return r._frame.Position end
             if k=="CFrame" then return r._frame end
         end,
         __newindex=function(r,k,v) if k=="CFrame" then rawset(r,"_frame",v) else rawset(r,k,v) end end,
     })
-    local hum = {Health=100}
+    function root:IsA(kind) return kind=="BasePart" end
+    local hum = {Health=100,HipHeight=options.r6 and 0 or 2,RigType=options.r6 and "R6" or "R15"}
     local ts = {}
     function ts:Create(part, info, goal)
         local tw={Root=part,Info=info,Goal=goal.CFrame,Completed=signal(),From=part.Position}
@@ -65,23 +77,37 @@ local function context(options)
         return tw
     end
     game={PlaceId=123,GetService=function(_,name) if name=="TweenService" then return ts end end}
-    local player={Character={},CharacterAdded=added}
+    local leg={Size=Vector3.new(1,options.legHeight or 2,1)}
+    local character={DescendantAdded=signal(),DescendantRemoving=signal()}
+    function character:GetDescendants() return {root} end
+    function character:FindFirstChild(name) if name=="Left Leg" then return leg end end
+    root.Parent=character
+    local player={Character=character,CharacterAdded=added}
     function player:RequestStreamAroundAsync()
         if options.streamHang then task.wait(1000) end
     end
     local drops={children={},ChildRemoved=signal()}
     function drops:GetChildren() return self.children end
     local H={Config={FarmMoveMode=options.mode or "TP",FarmTweenSpeed=85,FarmFlySpeed=85,
-        FarmTweenPauseSeconds=0,
+        FarmTweenPauseSeconds=0,BotNoclip=true,
         AutoPickup=true,BackgroundPickup=false,PickupDistance=7,TargetHeight=3,TargetTimeout=15,PickupInterval=0.3},
         State={Ready=true,Running=true,Unloaded=false,StartedAt=0,Collected=0,LastPickup=0,FarmSellPhase="FARM"},
-        Connections={},S={RunService={Heartbeat=heartbeat},Player=player},Core={}}
+        Connections={},OriginalCollision={},S={RunService={Heartbeat=heartbeat,Stepped=stepped},Player=player},Core={}}
     function H:Unload()
         self.State.Unloaded=true
         for _,c in ipairs(self.Connections) do c:Disconnect() end
     end
-    H.Core={Root=function() return t.root end,Humanoid=function() return hum end,
-        Noclip=function() end,DropsFolder=function() return drops end,
+    H.Core={Root=function() return t.root end,Humanoid=function() return hum end,Character=function() return character end,
+        Noclip=function(active)
+            t.noclip=active
+            if active then
+                if H.OriginalCollision[root]==nil then H.OriginalCollision[root]=root.CanCollide end
+                root.CanCollide=false
+            else
+                for part,old in pairs(H.OriginalCollision) do part.CanCollide=old end
+                table.clear(H.OriginalCollision)
+            end
+        end,DropsFolder=function() return drops end,
         IsTrinketDrop=function(obj) return obj and obj.Parent==drops end,
         DropPart=function(obj) return obj and obj.Part end,
         PressKey=function() t.pickups=t.pickups+1 return true end,
@@ -90,6 +116,10 @@ local function context(options)
     t.H,t.root,t.hum,t.player,t.heartbeat,t.drops=H,root,hum,player,heartbeat,drops
     if options.segmented then H.Config.FarmTweenPauseSeconds = nil end
     assert(loadfile("modules/farm_movement.lua"))()(H)
+    if options.noclipPatches then
+        assert(loadfile("modules/fps_patch.lua"))()(H)
+        assert(loadfile("modules/noclip_strength_patch.lua"))()(H)
+    end
     if options.farm then assert(loadfile("modules/farm.lua"))()(H) end
     if options.route then
         H.Farm={ClearTarget=function() H.State.CurrentTarget=nil H.FarmMovement.Cancel("loot") end,
@@ -111,11 +141,12 @@ local function context(options)
         while t.now<finish-0.000001 do
             local dt=math.min(1/30,finish-t.now)
             t.now=t.now+dt
+            stepped:Fire(t.now,dt)
             for _,tw in ipairs(t.tweens) do
                 if tw.Playing then
                     local alpha=math.min(1,(t.now-tw.Started)/tw.Info.Time)
                     tw.Root.CFrame=CFrame.new(tw.From+(tw.Goal.Position-tw.From)*alpha)
-                    if alpha>=1 then tw.Playing=false tw.Completed:Fire("Completed") end
+                    if alpha>=1 then tw.Playing=false tw.FinishedAt=t.now tw.Completed:Fire("Completed") end
                 end
             end
             local i=1
@@ -272,6 +303,116 @@ test("an intermediate pause never starts the route loot wait",function()
     t.advance(0.6);near(t.root.Position.X,20)
     equal(t.H.GetTrinketRouteStatus().Remaining,0);equal(t.hops,0)
     t.advance(0.6);near(t.root.Position.X,40)
+    assert(t.H.GetTrinketRouteStatus().Remaining>1);equal(t.hops,0)
+    t.advance(2);equal(t.hops,1)
+end)
+test("ground pauses land first, keep floor collision, then smoothly resume travel height",function()
+    local t=context({segmented=true,groundY=0,startY=23,noclipPatches=true});local m=t.H.FarmMovement
+    t.H.Config.FarmTweenSpeed=100
+    equal(t.H.Config.FarmTweenGroundPauses,true)
+    local dest=Vector3.new(60,23,0);local arrived=false
+    m.MoveTo(dest,nil,"route")
+    t.heartbeat:Connect(function()
+        -- Other automation callers must not turn noclip back on while grounded.
+        t.H.Core.Noclip(true)
+        arrived=m.MoveTo(dest,nil,"route")
+    end)
+    t.advance(0.25);equal(m.Active.Phase,"landing");equal(m.Active.PauseUntil,nil)
+    equal(t.root.CanCollide,false);near(t.tweens[2].Goal.Position.Y,3)
+    near(t.tweens[2].Info.Time,0.2);equal(arrived,false)
+    local params=t.raycasts[1].Params
+    equal(params.FilterDescendantsInstances[1],t.player.Character)
+    equal(params.FilterType,"Exclude");equal(params.RespectCanCollide,true);equal(params.IgnoreWater,true)
+    t.advance(0.25);near(t.root.Position.Y,3);near(t.root.Position.X,20)
+    equal(m.IsGroundedPause(),true);equal(t.root.CanCollide,true)
+    near(m.Active.PauseUntil,t.tweens[2].FinishedAt+0.2)
+    t.root.AssemblyLinearVelocity=Vector3.new(4,-1,4)
+    t.advance(0.1);near(t.root.Position.Y,3);equal(t.root.CanCollide,true)
+    near(t.root.AssemblyLinearVelocity.Y,-1);near(t.root.AssemblyLinearVelocity.X,0)
+    t.advance(0.15);equal(m.Active.Phase,"resume");equal(t.root.CanCollide,false)
+    near(t.tweens[3].From.Y,3);near(t.tweens[3].Goal.Position.Y,23)
+    t.advance(2);near(t.root.Position.X,60);near(t.root.Position.Y,23)
+    equal(arrived,true);equal(m.IsActive(),false)
+end)
+test("R6 ground clearance includes scaled legs and R15 uses hip height",function()
+    for _,r6 in ipairs({false,true}) do
+        local t=context({segmented=true,groundY=10,startY=30,r6=r6,legHeight=4});local m=t.H.FarmMovement
+        t.H.Config.FarmTweenSpeed=100
+        m.MoveTo(Vector3.new(100,30,0),nil,"loot")
+        t.advance(0.5)
+        near(t.root.Position.Y,r6 and 15 or 13);equal(m.IsGroundedPause(),true)
+    end
+end)
+test("missing, steep or unavailable floors keep an airborne pause without a descent",function()
+    for _,options in ipairs({{}, {groundY=-1000}, {groundY=0,floorNormalY=0.1}, {raycastError=true}}) do
+        options.segmented=true;options.startY=23
+        local t=context(options);local m=t.H.FarmMovement;t.H.Config.FarmTweenSpeed=100
+        m.MoveTo(Vector3.new(100,23,0),nil,"loot");t.advance(0.25)
+        equal(#t.tweens,1);near(t.root.Position.Y,23)
+        equal(m.IsGroundedPause(),false);assert(m.Active.PauseUntil>t.now)
+    end
+end)
+test("disappearing ground is rechecked before enabling floor collision",function()
+    local t=context({segmented=true,groundY=0,startY=23});local m=t.H.FarmMovement
+    t.H.Config.FarmTweenSpeed=100
+    m.MoveTo(Vector3.new(100,23,0),nil,"loot");t.advance(0.25)
+    equal(m.Active.Phase,"landing");t.floorY=nil;t.advance(0.25)
+    equal(m.IsGroundedPause(),false);equal(t.noclip,true);assert(m.Active.PauseUntil>t.now)
+end)
+test("stop, death, replacement, unload and retarget cancel every ground detour phase",function()
+    for _,when in ipairs({0.25,0.5,0.75}) do
+        for _,action in ipairs({"stop","death","character","unload","retarget"}) do
+            local t=context({segmented=true,groundY=0,startY=23});local m=t.H.FarmMovement
+            t.H.Config.FarmTweenSpeed=100
+            local dest=Vector3.new(100,23,0);local driving=true
+            m.MoveTo(dest,nil,"loot")
+            t.heartbeat:Connect(function() if driving then m.MoveTo(dest,nil,"loot") end end)
+            t.advance(when);local old=m.Active;local oldTween=old.Tween
+            if action=="stop" then t.H.State.Running=false
+            elseif action=="death" then t.hum.Health=0
+            elseif action=="character" then driving=false;t.player.CharacterAdded:Fire()
+            elseif action=="unload" then t.H:Unload()
+            else driving=false;m.MoveTo(Vector3.new(-100,23,0),nil,"loot")
+            end
+            t.advance(0.05);assert(m.Active~=old);equal(oldTween.Cancelled,true)
+            if action=="retarget" then m.Cancel() end
+            local count=#t.tweens;local pos=t.root.Position
+            t.advance(2);equal(#t.tweens,count);near((t.root.Position-pos).Magnitude,0)
+        end
+    end
+end)
+test("ground pauses respect a displaced position and disabling the option resumes immediately",function()
+    for _,disable in ipairs({false,true}) do
+        local t=context({segmented=true,groundY=0,startY=23});local m=t.H.FarmMovement
+        t.H.Config.FarmTweenSpeed=100
+        local dest=Vector3.new(100,23,0)
+        m.MoveTo(dest,nil,"loot");t.advance(0.5);equal(m.IsGroundedPause(),true)
+        if disable then
+            t.H.Config.FarmTweenGroundPauses=false
+        else
+            t.root.CFrame=CFrame.new(Vector3.new(5,3,0))
+            t.advance(0.3)
+        end
+        m.MoveTo(dest,nil,"loot")
+        equal(m.Active.Phase,"travel");near(t.tweens[#t.tweens].From.X,disable and 20 or 5)
+        near(t.tweens[#t.tweens].From.Y,3)
+    end
+end)
+test("continuous Tween, disabled ground pauses and Fly never probe for a floor",function()
+    for _,mode in ipairs({"continuous","off","Fly"}) do
+        local t=context({segmented=mode~="continuous",mode=mode=="Fly" and "Fly" or "Tween",groundY=0,startY=23})
+        t.H.Config.FarmTweenSpeed=100
+        if mode=="off" then t.H.Config.FarmTweenGroundPauses=false end
+        t.H.FarmMovement.MoveTo(Vector3.new(100,23,0),nil,"loot");t.advance(0.5)
+        equal(#t.raycasts,0)
+    end
+end)
+test("ground detours do not advance elevated routes or start their loot wait",function()
+    local t=context({route={{40,23,0}},segmented=true,groundY=0,startY=23})
+    t.H.Config.FarmTweenSpeed=100
+    t.advance(0.6);near(t.root.Position.X,20);near(t.root.Position.Y,3)
+    equal(t.H.GetTrinketRouteStatus().Remaining,0);equal(t.hops,0)
+    t.advance(0.8);near(t.root.Position.X,40);near(t.root.Position.Y,23)
     assert(t.H.GetTrinketRouteStatus().Remaining>1);equal(t.hops,0)
     t.advance(2);equal(t.hops,1)
 end)

@@ -48,6 +48,15 @@ return function(H)
         end,
     })
 
+    MoveGroup:AddToggle("EH_FarmTweenGroundPauses", {
+        Text = "Touch ground during pauses",
+        Default = H.Config.FarmTweenGroundPauses ~= false,
+        Callback = function(value)
+            H.FarmMovement.Cancel()
+            H.Config.FarmTweenGroundPauses = value
+        end,
+    })
+
     MoveGroup:AddSlider("EH_FarmFlySpeed", {
         Text = "Farm fly speed",
         Default = tonumber(H.Config.FarmFlySpeed) or 85,

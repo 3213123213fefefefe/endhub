@@ -84,7 +84,9 @@ return function(H)
 
     C.Noclip = function(active)
         active = active and true or false
-        if not active and automationNeedsNoclip() then active = true end
+        if H.FarmMovement and H.FarmMovement.IsGroundedPause() then
+            active = false
+        elseif not active and automationNeedsNoclip() then active = true end
 
         if active then
             enabled = true

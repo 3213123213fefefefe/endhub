@@ -29,7 +29,9 @@ return function(H)
 
         C.Noclip = function(active)
             active = active and true or false
-            if not active and automationNeedsNoclip() then active = true end
+            if H.FarmMovement and H.FarmMovement.IsGroundedPause() then
+                active = false
+            elseif not active and automationNeedsNoclip() then active = true end
 
             local character = C.Character and C.Character() or nil
             local now = tick()
@@ -218,4 +220,3 @@ return function(H)
 
     print("[EndHub] FPS patch loaded | noclip debounced | farm 30Hz | pickup de-dupe + confirm | capacity cache")
 end
-

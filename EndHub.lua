@@ -21,6 +21,7 @@ local H = {
         FarmTweenSpeed = 85,
         FarmTweenSegmentLength = 20,
         FarmTweenPauseSeconds = 0.2,
+        FarmTweenGroundPauses = true,
         FarmFlySpeed = 85,
         LootFilterEnabled = false,
         LootWhitelist = {},

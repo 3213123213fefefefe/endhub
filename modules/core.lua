@@ -342,6 +342,7 @@ return function(H)
 
     H.OriginalCollision = H.OriginalCollision or {}
     function C.Noclip(active)
+        if H.FarmMovement and H.FarmMovement.IsGroundedPause() then active = false end
         local ch = C.Character()
         if not ch then return end
         if active then
@@ -417,4 +418,3 @@ return function(H)
         return tool and tool.Name or "None"
     end
 end
-
