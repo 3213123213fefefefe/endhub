@@ -44,10 +44,9 @@ return function(H)
             end)
         end
         local destination = sellerDestination(pos)
-        if (root.Position - destination).Magnitude > 0.5 and tick() - (runtime.LastSellerTP or 0) >= 0.5 then
-            runtime.LastSellerTP = tick()
+        if (root.Position - destination).Magnitude > 0.5 then
             C.Noclip(true)
-            C.Teleport(destination, pos)
+            H.FarmMovement.MoveTo(destination, pos, "seller")
             runtime.SellerReady = false
             runtime.ReadyAt = 0
             if tick() - (runtime.LastSellerLog or 0) >= 2 then
@@ -391,18 +390,11 @@ return function(H)
             end
             H.Config.AutoSell = false
             H.State.SellStatus = "RETURN TO COLLECTION POSITION"
-            if not trip.ReturnStarted or (root.Position - trip.Origin.Position).Magnitude > 3 then
-                if not trip.LastReturn or tick() - trip.LastReturn >= 0.5 then
-                    trip.LastReturn = tick()
-                    trip.ReturnStarted = tick()
-                    C.Noclip(true)
-                    root.CFrame = trip.Origin
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
-                    print("[EndHub Seller] returning to collection origin=" .. tostring(trip.Origin.Position))
-                end
+            if not H.FarmMovement.MoveTo(trip.Origin.Position, nil, "seller-return") then
+                trip.ReturnStarted = nil
                 return
             end
+            trip.ReturnStarted = trip.ReturnStarted or tick()
             if tick() - trip.ReturnStarted < 0.3 then return end
         end
         S.Stop()
@@ -757,9 +749,9 @@ return function(H)
                 Character = Player.Character,
                 Destination = saved,
             }
-            H.State.SellStatus = "TP FIXED SELLER COORDINATES"
+            H.State.SellStatus = "TRAVEL TO SAVED SELLER"
             C.Noclip(true)
-            C.Teleport(saved)
+            H.FarmMovement.MoveTo(saved, nil, "seller")
             runtime.SellerReady = false
             runtime.ReadyAt = 0
             print("[EndHub Seller] trip started | origin=" .. tostring(runtime.SellerTrip.Origin.Position)
@@ -788,11 +780,12 @@ return function(H)
         C.SaveSellerPosition(part.Position)
 
         if (root.Position - part.Position).Magnitude > H.Config.SellerInteractDistance then
-            H.State.SellStatus = "TP TO CLEMENT"
+            H.State.SellStatus = "TRAVEL TO CLEMENT"
             approachSeller(part.Position, false)
             return
         end
 
+        H.FarmMovement.Cancel("seller")
         C.Noclip(true)
 
         if not runtime.SellerReady then

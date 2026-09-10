@@ -17,7 +17,8 @@ local H = {
         TargetTimeout = 15,
         AutoPickup = true,
         BotNoclip = true,
-        FarmMoveMode = "TP",
+        FarmMoveMode = "Tween",
+        FarmTweenSpeed = 85,
         FarmFlySpeed = 85,
         LootFilterEnabled = false,
         LootWhitelist = {},
@@ -125,6 +126,7 @@ end
 local order = {
     "modules/core.lua",
     "modules/persistence.lua",
+    "modules/farm_movement.lua",
     "modules/farm.lua",
     "modules/sell.lua",
     "modules/ui.lua",

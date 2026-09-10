@@ -154,6 +154,8 @@ local function context(options)
         DropsFolder = function() return {} end, Noclip = function() end,
         Teleport = function() t.routeTeleports = t.routeTeleports + 1 return true end,
     }
+    H.FarmMovement = {Cancel = function() end,
+        MoveTo = function() t.routeTeleports = t.routeTeleports + 1 return true end}
     H.Farm = {
         Start = function() t.starts = t.starts + 1 H.State.Running = true end,
         Stop = function() H.State.Running = false H.State.CurrentTarget = nil end,
@@ -315,15 +317,15 @@ test("only a complete empty lap hops; collecting repeats the route", function()
     t.loot = false
     t.H.Farm.Step(); equal(t.routeTeleports, 0)
     t.R.Bootstrap(); t.advance(1)
-    t.H.Farm.Step(); t.advance(0.1); equal(t.routeTeleports, 1)
+    t.H.Farm.Step(); t.advance(0.1); t.H.Farm.Step(); equal(t.routeTeleports, 1)
     t:add(2, true); t.advance(0.3); t.H.Farm.Step()
     equal(t.routeTeleports, 1) -- A Member check cannot skip the remaining route wait.
     t.H.Farm.Step(); equal(#t.teleports, 0)
-    t.advance(1.1); t.H.Farm.Step(); t.advance(0.1); equal(t.routeTeleports, 2)
+    t.advance(1.1); t.H.Farm.Step(); t.advance(0.1); t.H.Farm.Step(); equal(t.routeTeleports, 2)
     t.H.State.LootPickupSerial = 1
-    t.advance(1.1); t.H.Farm.Step(); t.advance(1.1)
+    t.advance(1.1); t.H.Farm.Step(); t.advance(0.1); t.H.Farm.Step(); t.advance(1.1)
     equal(#t.teleports, 0); equal(t.routeTeleports, 3)
-    t.H.Farm.Step(); t.advance(0.1); equal(t.routeTeleports, 4)
+    t.H.Farm.Step(); t.advance(0.1); t.H.Farm.Step(); equal(t.routeTeleports, 4)
     t.advance(1.1); t.H.Farm.Step(); t.advance(1)
     equal(#t.teleports, 1); equal(t.routeTeleports, 4)
 end)
@@ -471,6 +473,27 @@ test("death stops farm and sales; a new living character waits three seconds", f
     t.advance(0.2); equal(t.starts, 2)
     t.player.Character = {} -- Replacement is also guarded even without a sampled death.
     t.H.Farm.Step(); equal(t.H.State.Running, false)
+end)
+
+test("respawn return keeps collection paused until travel arrives", function()
+    local t = context()
+    t.R.Bootstrap(); t.advance(1)
+    local starts = t.starts
+    local arrived = false
+    t.H.State.Running, t.R.Allowed = false, false
+    t.R.DeathReturn = {Position = Vector3.new(100, 200, 300)}
+    t.H.FarmMovement.MoveTo = function(_, _, owner)
+        equal(owner, "respawn")
+        return arrived
+    end
+    t.advance(1)
+    equal(t.starts, starts)
+    equal(t.H.State.Running, false)
+    assert(t.R.DeathReturn)
+    arrived = true
+    t.advance(0.5)
+    equal(t.starts, starts + 1)
+    equal(t.R.DeathReturn, nil)
 end)
 
 test("actual Work loader deduplicates callers, patches before bootstrap, and cleans failed loads", function()

@@ -3,7 +3,7 @@ return function(H)
     local F = H.Farm
     local C = H.Core
 
-    H.Config.FarmMoveMode = H.Config.FarmMoveMode or "TP"
+    H.Config.FarmMoveMode = H.Config.FarmMoveMode == "Fly" and "Fly" or "Tween"
     H.Config.FarmFlySpeed = tonumber(H.Config.FarmFlySpeed) or 85
     if H.Config.LootFilterEnabled == nil then H.Config.LootFilterEnabled = false end
     H.Config.LootWhitelist = type(H.Config.LootWhitelist) == "table" and H.Config.LootWhitelist or {}
@@ -11,7 +11,6 @@ return function(H)
 
     local ignored = setmetatable({}, {__mode = "k"})
     local counted = setmetatable({}, {__mode = "k"})
-    local lastFlyStep = 0
 
     local function isIgnored(obj)
         local untilTime = ignored[obj]
@@ -28,8 +27,10 @@ return function(H)
     end
 
     function F.ClearTarget()
+        H.FarmMovement.Cancel("loot")
         H.State.CurrentTarget = nil
         H.State.TargetStarted = 0
+        H.State.PickupStarted = nil
         H.State.TargetDistance = 0
     end
 
@@ -182,6 +183,7 @@ return function(H)
     end
 
     function F.Stop()
+        H.FarmMovement.Cancel("route")
         H.State.Running = false
         F.ClearTarget()
         H.State.Status = "PAUSED"
@@ -189,41 +191,25 @@ return function(H)
     end
 
     local function moveToward(root, destination, lookAt, dt)
-        local mode = tostring(H.Config.FarmMoveMode or "TP")
-        if mode ~= "Fly" then
-            H.State.Status = "TP -> " .. tostring(H.State.CurrentTarget and H.State.CurrentTarget.Name or "loot")
-            C.Teleport(destination, lookAt)
-            return
-        end
-
-        -- Flight is intentionally throttled to ~30 updates/sec. Besides looking
-        -- less abrupt than teleporting, this avoids hammering character updates.
-        local now = tick()
-        if now - lastFlyStep < (1 / 30) then return end
-        lastFlyStep = now
-
-        local delta = destination - root.Position
-        if delta.Magnitude <= 0.05 then return end
-        local speed = math.max(5, tonumber(H.Config.FarmFlySpeed) or 85)
-        local step = math.min(delta.Magnitude, speed * math.max(dt or (1 / 30), 1 / 60))
-        local pos = root.Position + delta.Unit * step
-        root.CFrame = CFrame.lookAt(pos, lookAt)
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-        H.State.Status = "FLY -> " .. tostring(H.State.CurrentTarget and H.State.CurrentTarget.Name or "loot")
+        H.State.Status = string.upper(H.Config.FarmMoveMode) .. " -> "
+            .. tostring(H.State.CurrentTarget and H.State.CurrentTarget.Name or "loot")
+        return H.FarmMovement.MoveTo(destination, lookAt, "loot", dt)
     end
 
     function F.Step(dt)
-        if H.State.Unloaded or H.State.Ready == false or not H.State.Running then return end
-        if H.Config.AutoSell then return end
+        if H.State.Unloaded or H.State.Ready == false or not H.State.Running or H.Config.AutoSell then
+            H.FarmMovement.Cancel("loot")
+            return
+        end
 
         local root = C.Root()
         if not root then
+            H.FarmMovement.Cancel("loot")
             H.State.Status = "WAIT CHARACTER"
             return
         end
 
-        C.Noclip(H.Config.BotNoclip or tostring(H.Config.FarmMoveMode) == "Fly")
+        C.Noclip(true)
 
         local target = H.State.CurrentTarget
         if not F.Allowed(target) then
@@ -239,13 +225,6 @@ return function(H)
             return
         end
 
-        if H.State.TargetStarted > 0 and tick() - H.State.TargetStarted >= H.Config.TargetTimeout then
-            F.Ignore(target, 8)
-            F.ClearTarget()
-            H.State.Status = "TARGET TIMEOUT"
-            return
-        end
-
         local part = C.DropPart(target)
         if not part then
             F.Ignore(target, 5)
@@ -258,7 +237,17 @@ return function(H)
         H.State.TargetDistance = distance
 
         if (root.Position - destination).Magnitude > H.Config.PickupDistance then
+            H.State.PickupStarted = nil
             moveToward(root, destination, part.Position, dt)
+            return
+        end
+        H.FarmMovement.Cancel("loot")
+        -- Slow travel must not consume the time reserved for pickup attempts.
+        H.State.PickupStarted = H.State.PickupStarted or tick()
+        if tick() - H.State.PickupStarted >= H.Config.TargetTimeout then
+            F.Ignore(target, 8)
+            F.ClearTarget()
+            H.State.Status = "TARGET TIMEOUT"
             return
         end
 

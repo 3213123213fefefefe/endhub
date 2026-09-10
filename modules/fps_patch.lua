@@ -16,6 +16,7 @@ return function(H)
         local lastRefresh = 0
 
         local function automationNeedsNoclip()
+            if H.FarmMovement and H.FarmMovement.IsActive() then return true end
             if cfg.MovementNoclip or cfg.MovementFly then return true end
             if state.Running then
                 if cfg.BotNoclip then return true end

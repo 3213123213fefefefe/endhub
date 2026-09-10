@@ -8,12 +8,23 @@ return function(H)
 
     MoveGroup:AddDropdown("EH_FarmMoveMode", {
         Text = "Travel mode",
-        Values = {"TP", "Fly"},
+        Values = {"Tween", "Fly"},
         Default = H.Config.FarmMoveMode == "Fly" and 2 or 1,
         Multi = false,
         Callback = function(value)
-            H.Config.FarmMoveMode = value == "Fly" and "Fly" or "TP"
+            H.FarmMovement.Cancel()
+            H.Config.FarmMoveMode = value == "Fly" and "Fly" or "Tween"
             H.Farm.ClearTarget()
+        end,
+    })
+
+    MoveGroup:AddSlider("EH_FarmTweenSpeed", {
+        Text = "Tween speed",
+        Default = tonumber(H.Config.FarmTweenSpeed) or 85,
+        Min = 15, Max = 250, Rounding = 0, Suffix = " studs/s",
+        Callback = function(value)
+            H.FarmMovement.Cancel()
+            H.Config.FarmTweenSpeed = value
         end,
     })
 

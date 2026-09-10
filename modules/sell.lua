@@ -276,6 +276,8 @@ return function(H)
     end
 
     function S.Stop()
+        H.FarmMovement.Cancel("seller")
+        H.FarmMovement.Cancel("seller-return")
         H.Config.AutoSell = false
         runtime.SellerReady = false
         runtime.ReadyAt = 0
@@ -307,7 +309,7 @@ return function(H)
             local d = (root.Position - saved).Magnitude
             if d > 25 then
                 H.State.SellStatus = "TP SAVED SELLER AREA"
-                C.Teleport(saved + Vector3.new(0, 4, 0))
+                H.FarmMovement.MoveTo(saved + Vector3.new(0, 4, 0), nil, "seller")
             else
                 H.State.SellStatus = "WAIT CLEMENT STREAM"
             end
@@ -320,8 +322,8 @@ return function(H)
 
         local destination = part.Position + Vector3.new(0, 2.5, 0)
         if (root.Position - destination).Magnitude > H.Config.SellerInteractDistance then
-            H.State.SellStatus = "TP TO CLEMENT"
-            C.Teleport(destination, part.Position)
+            H.State.SellStatus = "TRAVEL TO CLEMENT"
+            H.FarmMovement.MoveTo(destination, part.Position, "seller")
             runtime.SellerReady = false
             runtime.ReadyAt = 0
             return

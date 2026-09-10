@@ -14,7 +14,8 @@ return function(H)
     local route = cfg.TrinketRoutes[mapKey]
     local singlePoint = cfg.TrinketSinglePoints[mapKey]
     local index, waitUntil, selected = 0, 0, nil
-    local waiting, streaming = false, false
+    local waiting = false
+    local travel, routeGeneration = nil, 0
     local markerFolder
 
     function H.GetTrinketRouteStatus()
@@ -36,6 +37,9 @@ return function(H)
         return false
     end
     local function reset()
+        routeGeneration = routeGeneration + 1
+        travel = nil
+        H.FarmMovement.Cancel("route")
         index, waitUntil, waiting = 0, 0, false
         F.ClearTarget()
     end
@@ -202,16 +206,38 @@ return function(H)
     local previousStep = F.Step
     function F.Step(dt)
         if H.State.Unloaded or H.State.Ready == false or not H.State.Running or cfg.AutoSell
-            or (cfg.AutoFarmSell and H.State.FarmSellPhase == 'SELL') then return end
+            or (cfg.AutoFarmSell and H.State.FarmSellPhase == 'SELL') then
+            H.FarmMovement.Cancel("route")
+            return
+        end
         local singleMode = cfg.TrinketSinglePointLoop and singlePoint ~= nil
-        if not singleMode and (not cfg.TrinketExplore or #route == 0) then return previousStep(dt) end
+        if not singleMode and (not cfg.TrinketExplore or #route == 0) then
+            H.FarmMovement.Cancel("route")
+            return previousStep(dt)
+        end
         local root, hum = C.Root(), C.Humanoid()
-        if not root or not hum or hum.Health <= 0 then return previousStep(dt) end
-        if streaming then
-            H.State.Status = 'STREAMING ROUTE POINT ' .. math.max(1, index)
+        if not root or not hum or hum.Health <= 0 then
+            H.FarmMovement.Cancel("route")
+            return previousStep(dt)
+        end
+        if travel then
             C.Noclip(true)
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
+            if travel.Streaming then
+                H.State.Status = 'STREAMING ROUTE POINT ' .. index
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+                return
+            end
+            H.State.Status = string.upper(cfg.FarmMoveMode or 'Tween') .. ' ROUTE POINT ' .. index
+            if H.FarmMovement.MoveTo(travel.Destination, nil, "route", dt) then
+                waiting = true
+                waitUntil = tick() + travel.Wait
+                H.State.Status = travel.Single and 'SINGLE POINT LOOT LOOP' or ('ROUTE POINT ' .. index .. '/' .. #route)
+                print('[EndHub Route] arrived | point=' .. index .. ' | wait=' .. travel.Wait
+                    .. ' | position=' .. tostring(travel.Destination))
+                travel = nil
+                drawMarkers()
+            end
             return
         end
         if waiting then
@@ -225,63 +251,46 @@ return function(H)
             waiting = false
         end
 
-        -- A streamed drop on the other side of the map used to make F.Nearest()
-        -- return truthy forever, which prevented the route index from advancing.
-        -- While following a saved route, only let loot near the current character
-        -- position interrupt the path. Distant/stale streamed drops are ignored
-        -- until the route reaches their area naturally.
         local current = H.State.CurrentTarget
         if current and not targetIsLocal(root, current) then
             F.ClearTarget()
             current = nil
         end
         if current or nearestLocal(root) then return previousStep(dt) end
-
         if not singleMode and index == #route and H.ServerCycle and H.ServerCycle.OnLootComplete() then return end
         F.ClearTarget()
         local p
         if singleMode then
-            index = 1
-            p = singlePoint
+            index, p = 1, singlePoint
         else
             index = index % #route + 1
             p = route[index]
         end
-        local destination = Vector3.new(p[1], p[2], p[3])
-        local pointWait = singleMode and cfg.TrinketSinglePointWait or (tonumber(p[4]) or cfg.TrinketRouteWait)
-        local destinationIndex = index
-        streaming = true
-        H.State.Status = singleMode and 'STREAMING SINGLE LOOP POINT' or ('STREAMING ROUTE POINT ' .. index .. '/' .. #route)
+        local pending = {
+            Destination = Vector3.new(p[1], p[2], p[3]), Single = singleMode, Streaming = true,
+            Wait = singleMode and cfg.TrinketSinglePointWait or (tonumber(p[4]) or cfg.TrinketRouteWait),
+        }
+        travel = pending
+        local generation = routeGeneration
+        H.State.Status = 'STREAMING ROUTE POINT ' .. index
         drawMarkers()
         task.spawn(function()
-            -- RequestStreamAroundAsync can ignore its nominal timeout and yield
-            -- forever on some executors/servers. Never let that freeze the route.
             local streamDone = false
             task.spawn(function()
-                pcall(function() H.S.Player:RequestStreamAroundAsync(destination, cfg.TrinketStreamTimeout) end)
+                pcall(function() H.S.Player:RequestStreamAroundAsync(pending.Destination, cfg.TrinketStreamTimeout) end)
                 streamDone = true
             end)
-            local streamDeadline = tick() + cfg.TrinketStreamTimeout
-            while not streamDone and tick() < streamDeadline and not H.State.Unloaded do task.wait(0.05) end
-            if H.State.Unloaded or not H.State.Running or cfg.AutoSell
-                or (cfg.AutoFarmSell and H.State.FarmSellPhase == 'SELL')
-                or destinationIndex ~= index then
-                streaming = false
-                return
-            end
-            C.Noclip(true)
-            if C.Teleport(destination) then
-                waiting = true
-                waitUntil = tick() + pointWait
-                H.State.Status = singleMode and 'SINGLE POINT LOOT LOOP' or ('ROUTE POINT ' .. index .. '/' .. #route)
-                print((singleMode and '[EndHub Single Loop]' or '[EndHub Route] point=' .. index .. '/' .. #route)
-                    .. ' | stream=' .. (streamDone and 'ready' or 'timeout') .. ' | wait=' .. pointWait .. ' | radius=' .. cfg.TrinketRouteLootRadius
-                    .. ' | position=' .. tostring(destination))
-            end
-            streaming = false
+            local deadline = tick() + cfg.TrinketStreamTimeout
+            while not streamDone and tick() < deadline and not H.State.Unloaded
+                and routeGeneration == generation do task.wait(0.05) end
+            if H.State.Unloaded or travel ~= pending or routeGeneration ~= generation then return end
+            -- Pausing cancels movement but retains this point for the next start.
+            pending.Streaming = false
         end)
     end
     function H.ResumeTrinketRouteAfterDeath()
+        -- A death during travel resumes the destination instead of skipping it.
+        if travel then return end
         if cfg.TrinketSinglePointLoop and singlePoint then
             index, waiting, waitUntil = 1, true, tick() + cfg.TrinketSinglePointWait
         elseif index > 0 and route[index] then
@@ -289,6 +298,12 @@ return function(H)
         end
     end
     local oldUnload = H.Unload
-    function H:Unload() clearMarkers() return oldUnload(self) end
+    function H:Unload()
+        routeGeneration = routeGeneration + 1
+        travel = nil
+        H.FarmMovement.Cancel("route")
+        clearMarkers()
+        return oldUnload(self)
+    end
     print('[EndHub] saved trinket route loaded | points=' .. #route .. ' | wait=' .. cfg.TrinketRouteWait .. ' | local loot radius=' .. cfg.TrinketRouteLootRadius)
 end

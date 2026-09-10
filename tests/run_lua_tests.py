@@ -2,6 +2,7 @@
 import ctypes
 import ctypes.util
 import os
+import sys
 from pathlib import Path
 
 os.chdir(Path(__file__).resolve().parents[1])
@@ -27,7 +28,7 @@ try:
             raise SystemExit(lib.lua_tolstring(state, -1, None).decode())
         lib.lua_settop(state, 0)
     print(f"Syntax OK: {len(paths)} Lua files", flush=True)
-    for suite in (b"tests/server_cycle_test.lua", b"tests/trinket_rarity_test.lua"):
+    for suite in ([arg.encode() for arg in sys.argv[1:]] or [b"tests/farm_movement_test.lua", b"tests/server_cycle_test.lua", b"tests/trinket_rarity_test.lua"]):
         error = lib.luaL_loadfilex(state, suite, None)
         if not error:
             error = lib.lua_pcallk(state, 0, 0, 0, 0, None)

@@ -37,6 +37,7 @@ return function(H)
         end
     end
     local function stopWork(preserveTrip)
+        if H.FarmMovement then H.FarmMovement.Cancel() end
         if preserveTrip and R.Allowed then
             local runtime = H.Sell and H.Sell.Runtime
             R.PausedWork = {Phase = H.State.FarmSellPhase, Trip = runtime and runtime.SellerTrip}
@@ -512,14 +513,16 @@ fn()
         if not C.Root() then status("WAIT CHARACTER") return end
         if R.DeathReturn then
             local destination = R.DeathReturn.Position
-            R.DeathReturn, R.LastLootPosition, R.LastLootCharacter = nil, nil, nil
             C.Noclip(true)
-            if C.Teleport(destination) then
-                if H.ResumeTrinketRouteAfterDeath then pcall(H.ResumeTrinketRouteAfterDeath) end
-                task.spawn(function() pcall(function() Player:RequestStreamAroundAsync(destination, 2) end) end)
-                print("[EndHub Death] returned to loot position=" .. tostring(destination))
-                status("RETURNED AFTER DEATH | RESUMING LOOT")
+            if not H.FarmMovement.MoveTo(destination, nil, "respawn") then
+                status("RETURNING TO LOOT POSITION")
+                return
             end
+            R.DeathReturn, R.LastLootPosition, R.LastLootCharacter = nil, nil, nil
+            if H.ResumeTrinketRouteAfterDeath then pcall(H.ResumeTrinketRouteAfterDeath) end
+            task.spawn(function() pcall(function() Player:RequestStreamAroundAsync(destination, 2) end) end)
+            print("[EndHub Death] returned to loot position=" .. tostring(destination))
+            status("RETURNED AFTER DEATH | RESUMING LOOT")
         end
         R.Allowed, R.IdleSince = true, nil
         cfg.AutoFarmSell = cfg.ServerCycleAutoSell

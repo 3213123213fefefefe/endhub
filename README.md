@@ -4,6 +4,10 @@
 loadstring(game:HttpGet("https://raw.githubusercontent.com/3213123213fefefefe/endhub/main/loader.lua"))()
 ```
 
+## Bot travel
+
+In **Farm → Farm Movement**, select **Tween** and adjust **Tween speed** in studs/second (default 85, slider 15–250). Stored TP settings migrate to Tween; an explicitly selected Fly mode remains available. The setting covers loot, route points, merchant travel and the return after selling or respawning. Pausing, changing targets, death and unloading cancel the current tween. Route waits start after arrival, and travel time does not consume the pickup timeout.
+
 Use this same loader in each client's AutoExecute. Restart the Roblox clients once when upgrading, especially if an old PickupSpy diagnostic was injected; existing executor hooks cannot be removed by unloading this UI.
 
 The main window has Farm, Sell and Settings. **Settings → Open Extras window** downloads the optional tools into a second window. Boss, Mob Farm, manual movement, player tools, ESP, environment controls, extended keybinds, tuning and diagnostics live on the [extras branch](https://github.com/3213123213fefefefe/endhub/tree/extras). Close Extras through its Settings tab to stop its tools and disconnect its listeners; hiding the window keeps explicitly enabled tools running. RightShift toggles the main window; RightControl initially toggles Extras.
