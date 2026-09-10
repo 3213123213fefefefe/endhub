@@ -86,6 +86,7 @@ return function(H)
                 loadMain(ctx, "modules/visuals.lua")
                 loadPinned(ctx, "boss", true)
                 loadPinned(ctx, "mob_farm", true)
+                loadMain(ctx, "modules/boss_aggressive_detector.lua")
 
                 H.Movement = ctx.Movement
                 H.PlayerTools = ctx.PlayerTools
