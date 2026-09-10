@@ -3,16 +3,24 @@ return function(H)
     local mapKey = tostring(game.PlaceId)
     cfg.TrinketExplore = cfg.TrinketExplore ~= false
     cfg.TrinketRouteESP = cfg.TrinketRouteESP == true
+    cfg.TrinketSinglePointLoop = cfg.TrinketSinglePointLoop == true
+    cfg.TrinketSinglePoints = type(cfg.TrinketSinglePoints) == 'table' and cfg.TrinketSinglePoints or {}
+    cfg.TrinketSinglePointWait = math.clamp(tonumber(cfg.TrinketSinglePointWait) or 1, 0, 10)
     cfg.TrinketRoutes = type(cfg.TrinketRoutes) == 'table' and cfg.TrinketRoutes or {}
     cfg.TrinketRoutes[mapKey] = type(cfg.TrinketRoutes[mapKey]) == 'table' and cfg.TrinketRoutes[mapKey] or {}
     cfg.TrinketRouteWait = math.clamp(tonumber(cfg.TrinketRouteWait) or 1, 1, 10)
     cfg.TrinketRouteLootRadius = math.clamp(tonumber(cfg.TrinketRouteLootRadius) or 140, 40, 300)
     local route = cfg.TrinketRoutes[mapKey]
+    local singlePoint = cfg.TrinketSinglePoints[mapKey]
     local index, waitUntil, selected = 0, 0, nil
     local waiting, streaming = false, false
     local markerFolder
 
     function H.GetTrinketRouteStatus()
+        if cfg.TrinketSinglePointLoop then
+            return {Index = singlePoint and 1 or 0, Total = singlePoint and 1 or 0,
+                Remaining = waiting and math.max(0, waitUntil - tick()) or 0, SinglePoint = true}
+        end
         return {Index = index, Total = #route, Remaining = waiting and math.max(0, waitUntil - tick()) or 0}
     end
 
@@ -47,6 +55,10 @@ return function(H)
         end
         if not valid then table.remove(route, i) end
     end
+    if type(singlePoint) ~= 'table' or not tonumber(singlePoint[1]) or not tonumber(singlePoint[2]) or not tonumber(singlePoint[3]) then
+        singlePoint = nil
+        cfg.TrinketSinglePoints[mapKey] = nil
+    end
 
     local group = H.UI.Tabs.Botting:AddLeftGroupbox('Trinket Route')
     group:AddToggle('EH_TrinketExplore', {Text = 'Use saved search points', Default = cfg.TrinketExplore,
@@ -54,7 +66,7 @@ return function(H)
     local function clearMarkers() if markerFolder then markerFolder:Destroy() markerFolder = nil end end
     local function drawMarkers()
         clearMarkers()
-        if not cfg.TrinketRouteESP or #route == 0 then return end
+        if not cfg.TrinketRouteESP or (#route == 0 and not singlePoint) then return end
         markerFolder = Instance.new('Folder') markerFolder.Name = 'EndHubRoutePoints' markerFolder.Parent = workspace
         local last
         for i, p in ipairs(route) do
@@ -72,7 +84,49 @@ return function(H)
             end
             last = part
         end
+        if singlePoint then
+            local part = Instance.new('Part')
+            part.Name, part.Anchored, part.CanCollide, part.CanQuery, part.Transparency = 'SinglePointLoop', true, false, false, 0.15
+            part.Shape, part.Size, part.Material = Enum.PartType.Ball, Vector3.new(2.2, 2.2, 2.2), Enum.Material.Neon
+            part.Color, part.Position, part.Parent = Color3.fromRGB(255, 70, 210), Vector3.new(singlePoint[1], singlePoint[2], singlePoint[3]), markerFolder
+            local gui = Instance.new('BillboardGui') gui.AlwaysOnTop, gui.Size, gui.StudsOffset = true, UDim2.fromOffset(170, 34), Vector3.new(0, 2.5, 0) gui.Parent = part
+            local text = Instance.new('TextLabel') text.BackgroundTransparency, text.Size, text.TextScaled = 1, UDim2.fromScale(1,1), true
+            text.Text, text.TextColor3, text.Parent = 'SINGLE LOOP (' .. tostring(cfg.TrinketSinglePointWait) .. 's)', Color3.new(1,1,1), gui
+        end
     end
+    group:AddToggle('EH_TrinketSinglePointLoop', {Text = 'Loop only one loot point', Default = cfg.TrinketSinglePointLoop,
+        Callback = function(value)
+            cfg.TrinketSinglePointLoop = value
+            reset()
+            F.ClearTarget()
+            save()
+            drawMarkers()
+        end})
+    group:AddSlider('EH_TrinketSinglePointWait', {Text = 'Single point loop wait', Default = cfg.TrinketSinglePointWait,
+        Min = 0, Max = 10, Rounding = 1, Suffix = ' s', Callback = function(value)
+            cfg.TrinketSinglePointWait = value
+            drawMarkers()
+        end})
+    group:AddButton({Text = 'Save my position as single loop point', Func = function()
+        local root = C.Root() if not root then return end
+        local p = root.Position
+        singlePoint = {p.X, p.Y, p.Z}
+        cfg.TrinketSinglePoints[mapKey] = singlePoint
+        reset()
+        save()
+        drawMarkers()
+        print('[EndHub Single Loop] saved | map=' .. mapKey .. ' | position=' .. tostring(p))
+    end})
+    group:AddButton({Text = 'Clear single loop point', Func = function()
+        singlePoint = nil
+        cfg.TrinketSinglePoints[mapKey] = nil
+        cfg.TrinketSinglePointLoop = false
+        local toggle = H.UI.Toggles and H.UI.Toggles.EH_TrinketSinglePointLoop
+        if toggle and toggle.SetValue then toggle:SetValue(false) end
+        reset()
+        save()
+        drawMarkers()
+    end})
     group:AddToggle('EH_TrinketRouteESP', {Text = 'Show numbered route points', Default = cfg.TrinketRouteESP,
         Callback = function(value) cfg.TrinketRouteESP = value drawMarkers() end})
     group:AddSlider('EH_TrinketRouteWait', {Text = 'Wait before looting at each point', Default = cfg.TrinketRouteWait,
@@ -148,7 +202,8 @@ return function(H)
     function F.Step(dt)
         if H.State.Unloaded or H.State.Ready == false or not H.State.Running or cfg.AutoSell
             or (cfg.AutoFarmSell and H.State.FarmSellPhase == 'SELL') then return end
-        if not cfg.TrinketExplore or #route == 0 then return previousStep(dt) end
+        local singleMode = cfg.TrinketSinglePointLoop and singlePoint ~= nil
+        if not singleMode and (not cfg.TrinketExplore or #route == 0) then return previousStep(dt) end
         local root, hum = C.Root(), C.Humanoid()
         if not root or not hum or hum.Health <= 0 then return previousStep(dt) end
         if waiting then
@@ -174,19 +229,26 @@ return function(H)
         end
         if current or nearestLocal(root) then return previousStep(dt) end
 
-        if index == #route and H.ServerCycle and H.ServerCycle.OnLootComplete() then return end
+        if not singleMode and index == #route and H.ServerCycle and H.ServerCycle.OnLootComplete() then return end
         F.ClearTarget()
-        index = index % #route + 1
-        local p = route[index]
+        local p
+        if singleMode then
+            index = 1
+            p = singlePoint
+        else
+            index = index % #route + 1
+            p = route[index]
+        end
         local destination = Vector3.new(p[1], p[2], p[3])
         C.Noclip(true)
         if not C.Teleport(destination) then return end
         waiting = true
-        local pointWait = tonumber(p[4]) or cfg.TrinketRouteWait
+        local pointWait = singleMode and cfg.TrinketSinglePointWait or (tonumber(p[4]) or cfg.TrinketRouteWait)
         waitUntil = tick() + pointWait
-        H.State.Status = 'ROUTE POINT ' .. index .. '/' .. #route
+        H.State.Status = singleMode and 'SINGLE POINT LOOT LOOP' or ('ROUTE POINT ' .. index .. '/' .. #route)
         drawMarkers()
-        print('[EndHub Route] point=' .. index .. '/' .. #route .. ' | wait=' .. pointWait .. ' | radius=' .. cfg.TrinketRouteLootRadius .. ' | position=' .. tostring(destination))
+        print((singleMode and '[EndHub Single Loop]' or '[EndHub Route] point=' .. index .. '/' .. #route)
+            .. ' | wait=' .. pointWait .. ' | radius=' .. cfg.TrinketRouteLootRadius .. ' | position=' .. tostring(destination))
         if not streaming then
             streaming = true
             task.spawn(function()
@@ -196,7 +258,11 @@ return function(H)
         end
     end
     function H.ResumeTrinketRouteAfterDeath()
-        if index > 0 and route[index] then waiting = true waitUntil = tick() + (tonumber(route[index][4]) or cfg.TrinketRouteWait) end
+        if cfg.TrinketSinglePointLoop and singlePoint then
+            index, waiting, waitUntil = 1, true, tick() + cfg.TrinketSinglePointWait
+        elseif index > 0 and route[index] then
+            waiting = true waitUntil = tick() + (tonumber(route[index][4]) or cfg.TrinketRouteWait)
+        end
     end
     local oldUnload = H.Unload
     function H:Unload() clearMarkers() return oldUnload(self) end
