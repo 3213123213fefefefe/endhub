@@ -72,6 +72,9 @@ local H = {
         ESPShowRank = true,
         ESPShowDistance = true,
         ESPShowEquipped = false,
+        ESPShowPrestige = true,
+        ESPShowMaxHealth = true,
+        ESPShowSanity = true,
     },
     State = {
         Ready = false,
@@ -186,4 +189,3 @@ end
 
 print("[EndHub] COMPLETE modular build loaded")
 return H
-
