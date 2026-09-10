@@ -6,6 +6,14 @@ return function(H)
     -- Migrate saved TP profiles without changing an explicitly selected Fly mode.
     cfg.FarmMoveMode = cfg.FarmMoveMode == "Fly" and "Fly" or "Tween"
     cfg.FarmTweenSpeed = tonumber(cfg.FarmTweenSpeed) or 85
+    cfg.FarmTweenSegmentLength = tonumber(cfg.FarmTweenSegmentLength) or 20
+    cfg.FarmTweenPauseSeconds = tonumber(cfg.FarmTweenPauseSeconds) or 0.2
+
+    local function boundedNumber(value, fallback, minimum, maximum)
+        value = tonumber(value)
+        if not value or value ~= value then value = fallback end
+        return math.max(minimum, math.min(maximum, value))
+    end
 
     local function speedFor(mode)
         local value = tonumber(mode == "Fly" and cfg.FarmFlySpeed or cfg.FarmTweenSpeed)
@@ -61,11 +69,26 @@ return function(H)
         end
         local mode = cfg.FarmMoveMode == "Fly" and "Fly" or "Tween"
         local speed = speedFor(mode)
+        local segmentLength = boundedNumber(cfg.FarmTweenSegmentLength, 20, 5, 100)
+        local pauseSeconds = boundedNumber(cfg.FarmTweenPauseSeconds, 0.2, 0, 1)
         local active = M.Active
         local same = active and active.Root == root and active.Owner == owner
             and active.Mode == mode and active.Speed == speed
+            and (mode == "Fly" or (active.SegmentLength == segmentLength and active.PauseSeconds == pauseSeconds))
             and (active.Destination - destination).Magnitude < 0.25
         C.Noclip(true)
+        if same and active.PauseUntil and tick() < active.PauseUntil then
+            -- No delayed callback or saved-position snap: cancellation stays immediate,
+            -- and the next segment is calculated from the current character position.
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            if owner == "seller" or owner == "seller-return" then
+                state.SellStatus = "TWEEN PAUSE"
+            else
+                state.Status = "TWEEN PAUSE"
+            end
+            return false
+        end
         if mode == "Fly" then
             if not same then
                 M.Cancel()
@@ -81,11 +104,14 @@ return function(H)
                 and CFrame.lookAt(pos, lookAt) or CFrame.new(pos) * root.CFrame.Rotation
         elseif not same or active.Completed then
             M.Cancel()
-            local goal = lookAt and (lookAt - destination).Magnitude > 0.01
-                and CFrame.lookAt(destination, lookAt) or CFrame.new(destination) * root.CFrame.Rotation
+            -- A zero pause keeps the original continuous tween behavior.
+            local distance = pauseSeconds > 0 and math.min(delta.Magnitude, segmentLength) or delta.Magnitude
+            local nextPosition = root.Position + delta.Unit * distance
+            local goal = lookAt and (lookAt - nextPosition).Magnitude > 0.01
+                and CFrame.lookAt(nextPosition, lookAt) or CFrame.new(nextPosition) * root.CFrame.Rotation
             local ok, tween = pcall(function()
                 return TweenService:Create(root,
-                    TweenInfo.new(delta.Magnitude / speed, Enum.EasingStyle.Linear), {CFrame = goal})
+                    TweenInfo.new(distance / speed, Enum.EasingStyle.Linear), {CFrame = goal})
             end)
             if not ok then
                 state.Status = "TWEEN ERROR"
@@ -93,12 +119,17 @@ return function(H)
                 return false
             end
             active = {Root = root, Owner = owner, Mode = mode, Speed = speed,
-                Destination = destination, Tween = tween}
+                Destination = destination, Tween = tween,
+                SegmentLength = segmentLength, PauseSeconds = pauseSeconds}
             M.Active = active
             active.Connection = tween.Completed:Connect(function(playback)
                 if M.Active == active then
                     active.Completed = playback == Enum.PlaybackState.Completed
-                    if not active.Completed then M.Cancel(owner) end
+                    if not active.Completed then
+                        M.Cancel(owner)
+                    elseif pauseSeconds > 0 and (destination - root.Position).Magnitude > 0.5 then
+                        active.PauseUntil = tick() + pauseSeconds
+                    end
                 end
             end)
             tween:Play()

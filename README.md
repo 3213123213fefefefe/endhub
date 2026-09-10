@@ -6,7 +6,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/3213123213fefefefe/en
 
 ## Bot travel
 
-In **Farm → Farm Movement**, select **Tween** and adjust **Tween speed** in studs/second (default 85, slider 15–250). Stored TP settings migrate to Tween; an explicitly selected Fly mode remains available. The setting covers loot, route points, merchant travel and the return after selling or respawning. Pausing, changing targets, death and unloading cancel the current tween. Route waits start after arrival, and travel time does not consume the pickup timeout.
+In **Farm → Farm Movement**, select **Tween** and adjust **Tween speed** in studs/second (default 85, slider 15–250). Stored TP settings migrate to Tween; an explicitly selected Fly mode remains available. The setting covers loot, route points, merchant travel and the return after selling or respawning. By default, Tween travels in 20-stud segments with a 0.20-second pause between them. Adjust **Tween segment length** and **Pause between segments** in the same group; a pause of zero restores continuous travel. Each segment starts at the current character position. These pauses do not guarantee that the server will accept movement. Pausing, changing targets, death and unloading cancel the current tween. Route waits start after arrival, and travel time does not consume the pickup timeout.
 
 Use this same loader in each client's AutoExecute. Restart the Roblox clients once when upgrading, especially if an old PickupSpy diagnostic was injected; existing executor hooks cannot be removed by unloading this UI.
 

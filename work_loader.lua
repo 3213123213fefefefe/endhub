@@ -1,6 +1,6 @@
 -- One owner per Roblox client. AutoExecute + teleport queue share this guard.
 local ENV = getgenv()
-local JOB, VERSION = tostring(game.JobId), "multi-client-17-tween"
+local JOB, VERSION = tostring(game.JobId), "multi-client-18-tween-pauses"
 local boot = ENV.ENDHUB_BOOT
 if boot and boot.JobId == JOB and boot.Loading then
     while boot.Loading and ENV.ENDHUB_BOOT == boot do task.wait(0.1) end

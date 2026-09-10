@@ -72,6 +72,7 @@ local function context(options)
     local drops={children={},ChildRemoved=signal()}
     function drops:GetChildren() return self.children end
     local H={Config={FarmMoveMode=options.mode or "TP",FarmTweenSpeed=85,FarmFlySpeed=85,
+        FarmTweenPauseSeconds=0,
         AutoPickup=true,BackgroundPickup=false,PickupDistance=7,TargetHeight=3,TargetTimeout=15,PickupInterval=0.3},
         State={Ready=true,Running=true,Unloaded=false,StartedAt=0,Collected=0,LastPickup=0,FarmSellPhase="FARM"},
         Connections={},S={RunService={Heartbeat=heartbeat},Player=player},Core={}}
@@ -87,6 +88,7 @@ local function context(options)
         Connect=function(s,fn) local c=s:Connect(fn) H.Connections[#H.Connections+1]=c return c end,
         Teleport=function() error("automated movement used direct teleport") end}
     t.H,t.root,t.hum,t.player,t.heartbeat,t.drops=H,root,hum,player,heartbeat,drops
+    if options.segmented then H.Config.FarmTweenPauseSeconds = nil end
     assert(loadfile("modules/farm_movement.lua"))()(H)
     if options.farm then assert(loadfile("modules/farm.lua"))()(H) end
     if options.route then
@@ -208,6 +210,70 @@ test("explicit Fly mode continues to move incrementally without TweenService",fu
     local t=context({mode="Fly"})
     t.heartbeat:Connect(function(dt) t.H.FarmMovement.MoveTo(Vector3.new(170,0,0),nil,"loot",dt) end)
     t.advance(1);near(t.root.Position.X,85);equal(#t.tweens,0)
+end)
+test("segmented tween pauses between short legs and completes without a final pause",function()
+    local t=context({segmented=true});local m=t.H.FarmMovement
+    equal(t.H.Config.FarmTweenSegmentLength,20);near(t.H.Config.FarmTweenPauseSeconds,0.2)
+    t.H.Config.FarmTweenSpeed=100
+    local dest=Vector3.new(60,0,0);local arrived=false;local previousX=0
+    m.MoveTo(dest,nil,"loot")
+    t.heartbeat:Connect(function(dt)
+        assert(t.root.Position.X-previousX<=100*dt+0.01)
+        previousX=t.root.Position.X
+        arrived=m.MoveTo(dest,nil,"loot")
+    end)
+    near(t.tweens[1].Info.Time,0.2);near(t.tweens[1].Goal.Position.X,20)
+    t.advance(0.25);near(t.root.Position.X,20);equal(#t.tweens,1)
+    assert(m.Active.PauseUntil>t.now);equal(arrived,false)
+    t.advance(0.1);near(t.root.Position.X,20);equal(#t.tweens,1)
+    t.advance(0.14);equal(#t.tweens,2);assert(t.root.Position.X>20 and t.root.Position.X<40)
+    t.advance(1);near(t.root.Position.X,60);equal(#t.tweens,3)
+    equal(arrived,true);equal(m.IsActive(),false)
+end)
+test("pause, death and unload during a segment break cannot trigger a delayed restart",function()
+    for _,action in ipairs({"pause","death","unload"}) do
+        local t=context({segmented=true});local m=t.H.FarmMovement
+        t.H.Config.FarmTweenSpeed=100
+        local dest=Vector3.new(100,0,0)
+        m.MoveTo(dest,nil,"loot")
+        t.heartbeat:Connect(function() m.MoveTo(dest,nil,"loot") end)
+        t.advance(0.25);assert(m.Active.PauseUntil>t.now)
+        if action=="pause" then t.H.State.Running=false
+        elseif action=="death" then t.hum.Health=0
+        else t.H:Unload() end
+        t.advance(1);near(t.root.Position.X,20);equal(#t.tweens,1);equal(m.IsActive(),false)
+    end
+end)
+test("position changes during a break are respected by the next segment",function()
+    local t=context({segmented=true});local m=t.H.FarmMovement
+    t.H.Config.FarmTweenSpeed=100
+    local dest=Vector3.new(100,0,0)
+    m.MoveTo(dest,nil,"loot")
+    t.heartbeat:Connect(function() m.MoveTo(dest,nil,"loot") end)
+    t.advance(0.25);near(t.root.Position.X,20)
+    t.root.CFrame=CFrame.new(Vector3.new(5,0,0))
+    t.advance(0.1);near(t.root.Position.X,5);equal(#t.tweens,1)
+    t.advance(0.14);equal(#t.tweens,2)
+    near(t.tweens[2].From.X,5);near(t.tweens[2].Goal.Position.X,25)
+end)
+test("retargeting during a break abandons the old destination",function()
+    local t=context({segmented=true});local m=t.H.FarmMovement
+    t.H.Config.FarmTweenSpeed=100
+    m.MoveTo(Vector3.new(100,0,0),nil,"loot");t.advance(0.25)
+    assert(m.Active.PauseUntil>t.now)
+    m.MoveTo(Vector3.new(-20,0,0),nil,"loot")
+    equal(t.tweens[1].Cancelled,true);equal(#t.tweens,2)
+    near(t.tweens[2].Goal.Position.X,0)
+    t.advance(0.1);near(t.root.Position.X,10)
+end)
+test("an intermediate pause never starts the route loot wait",function()
+    local t=context({route={{40,0,0}},segmented=true})
+    t.H.Config.FarmTweenSpeed=100;t.H.Config.FarmTweenPauseSeconds=0.5
+    t.advance(0.6);near(t.root.Position.X,20)
+    equal(t.H.GetTrinketRouteStatus().Remaining,0);equal(t.hops,0)
+    t.advance(0.6);near(t.root.Position.X,40)
+    assert(t.H.GetTrinketRouteStatus().Remaining>1);equal(t.hops,0)
+    t.advance(2);equal(t.hops,1)
 end)
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2]);assert(ok,entry[1].."\n"..tostring(err));output("PASS "..entry[1])

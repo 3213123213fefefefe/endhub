@@ -28,6 +28,26 @@ return function(H)
         end,
     })
 
+    MoveGroup:AddSlider("EH_FarmTweenSegmentLength", {
+        Text = "Tween segment length",
+        Default = tonumber(H.Config.FarmTweenSegmentLength) or 20,
+        Min = 5, Max = 100, Rounding = 0, Suffix = " studs",
+        Callback = function(value)
+            H.FarmMovement.Cancel()
+            H.Config.FarmTweenSegmentLength = value
+        end,
+    })
+
+    MoveGroup:AddSlider("EH_FarmTweenPauseSeconds", {
+        Text = "Pause between segments",
+        Default = tonumber(H.Config.FarmTweenPauseSeconds) or 0.2,
+        Min = 0, Max = 1, Rounding = 2, Suffix = " s",
+        Callback = function(value)
+            H.FarmMovement.Cancel()
+            H.Config.FarmTweenPauseSeconds = value
+        end,
+    })
+
     MoveGroup:AddSlider("EH_FarmFlySpeed", {
         Text = "Farm fly speed",
         Default = tonumber(H.Config.FarmFlySpeed) or 85,
