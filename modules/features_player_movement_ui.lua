@@ -29,7 +29,12 @@ return function(H)
 
     local flyToggle = flyGroup:AddToggle("EH_Fly", {
         Text = "Fly", Default = false,
-        Callback = function(v) H.Config.MovementFly = v end,
+        Callback = function(v)
+            H.Movement.SetFly(v)
+            if v and Toggles.EH_FlyTween and Toggles.EH_FlyTween.Value then
+                Toggles.EH_FlyTween:SetValue(false)
+            end
+        end,
     })
     flyToggle:AddKeyPicker("EH_InlineFlyKey", {
         Default = saved.feature_fly or "None",
@@ -46,9 +51,41 @@ return function(H)
         Min = 20, Max = 400, Rounding = 0,
         Callback = function(v) H.Config.MovementFlySpeed = v end,
     })
+
+    local flyTweenToggle = flyGroup:AddToggle("EH_FlyTween", {
+        Text = "Fly Tween", Default = false,
+        Callback = function(v)
+            H.Movement.SetFlyTween(v)
+            if v and Toggles.EH_Fly and Toggles.EH_Fly.Value then
+                Toggles.EH_Fly:SetValue(false)
+            end
+        end,
+    })
+    flyTweenToggle:AddKeyPicker("EH_InlineFlyTweenKey", {
+        Default = saved.feature_fly_tween or "None",
+        Mode = "Toggle",
+        SyncToggleState = true,
+        Text = "Fly Tween",
+        NoUI = false,
+        ChangedCallback = function(newKey)
+            saveKey("feature_fly_tween", newKey)
+        end,
+    })
+    flyGroup:AddSlider("EH_FlyTweenSpeed", {
+        Text = "Fly Tween speed", Default = H.Config.MovementFlyTweenSpeed,
+        Min = 20, Max = 400, Rounding = 0,
+        Callback = function(v) H.Config.MovementFlyTweenSpeed = v end,
+    })
+    flyGroup:AddSlider("EH_FlyTweenSegment", {
+        Text = "Tween segment", Default = H.Config.MovementFlyTweenSegmentLength,
+        Min = 4, Max = 40, Rounding = 0, Suffix = " studs",
+        Callback = function(v) H.Config.MovementFlyTweenSegmentLength = v end,
+    })
+
     flyGroup:AddButton({Text = "Stop Fly", Func = function()
         H.Movement.StopFly()
         if Toggles.EH_Fly then Toggles.EH_Fly:SetValue(false) end
+        if Toggles.EH_FlyTween then Toggles.EH_FlyTween:SetValue(false) end
     end})
 
     local noclipToggle = moveGroup:AddToggle("EH_Noclip", {
