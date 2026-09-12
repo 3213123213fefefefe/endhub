@@ -37,6 +37,9 @@ local H = {
 
         MovementFly = false,
         MovementFlySpeed = 120,
+        MovementFlyTween = false,
+        MovementFlyTweenSpeed = 90,
+        MovementFlyTweenSegmentLength = 16,
         MovementNoclip = false,
         WalkSpeed = 16,
         SpeedMultiplier = 1,
